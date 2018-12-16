@@ -1,9 +1,9 @@
-program     : [definition | export]*;
-definition  : Fn prototype scope;
-prototype   : Identifier LeftParen [Identifier Colon Primitive Comma ?]* RightParen Arrow Primitive;
-scope       : LeftBrace [statement]* RightBrace;
-statement   : [let_expr | return_expr];
-let_expr    : Let Identifier [Colon Primitive] ? Equals expression;
-return_expr : Return expression;
-expression  : [Identifier | Number | call_expr];
-call_expr   : Identifier LeftParen [expression Comma ?]* RightParen;
+program          : [definition]*;
+definition       : Fn prototype scope;
+prototype        : Identifier LeftParen [Identifier Colon Primitive Comma ?]* RightParen Arrow Primitive;
+scope            : LeftBrace [statement]* RightBrace;
+statement        : [let_statement | return_statement];
+let_statement    : Let Identifier [Colon Primitive] ? Equals expression;
+return_statement : Return expression;
+expression       : [Identifier | Number | call_expr];
+call_expr        : Identifier LeftParen [expression Comma ?]* RightParen;
