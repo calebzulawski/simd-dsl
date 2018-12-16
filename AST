@@ -1,0 +1,10 @@
+program     : [definition]*;
+definition  : Fn prototype scope;
+prototype   : Identifier LeftParen [type Identifier Comma ?]* RightParen Arrow type;
+scope       : LeftBrace [statement]* RightBrace;
+statement   : [let_expr | return_expr];
+let_expr    : Let Identifier [Colon type] ? Equals expression;
+return_expr : Return expression;
+expression  : [Identifier | Literal | call_expr];
+call_expr   : Identifier LeftParen [expression Comma ?]* RightParen;
+type        : [Unsigned8 | Unsigned16 | Unsigned32 | Unsigned64 | Signed8 | Signed16 | Signed32 | Signed64 | Float32 | Float64]

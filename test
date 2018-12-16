@@ -1,0 +1,11 @@
+# This is a comment
+fn something(i32 a, f64 b) -> i32
+{
+    let c = add(a, b);
+    return abs(c);
+}
+
+fn something_else(u8 x) -> u32
+{
+    return u8_to_u32(x); #inline comment
+}
