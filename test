@@ -1,11 +1,11 @@
-# This is a comment
-fn something(i32 a, f64 b) -> i32
+# Adds two numbers and takes the absolute value
+fn add_abs(i32 a, f64 b) -> i32
 {
-    let c = add(a, b);
-    return abs(c);
+    let sum = add(a, b); # an inline comment
+    return abs(sum);
 }
 
-fn something_else(u8 x) -> u32
+fn increment(u8 x) -> u32
 {
-    return u8_to_u32(x); #inline comment
+    return add(x, 1);
 }

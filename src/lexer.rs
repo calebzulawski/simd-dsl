@@ -1,5 +1,5 @@
 #[derive(PartialEq, Clone, Debug)]
-pub enum Type {
+pub enum Primitive {
     Unsigned8,
     Unsigned16,
     Unsigned32,
@@ -17,6 +17,7 @@ pub enum Token {
     Fn,
     Let,
     Return,
+    Export,
     Semicolon,
     LeftParen,
     RightParen,
@@ -27,7 +28,8 @@ pub enum Token {
     Equals,
     Arrow,
     Identifier(String),
-    Type(Type),
+    Primitive(Primitive),
+    Number(String),
 }
 
 pub fn tokenize(input: &str) -> Vec<Token> {
@@ -39,6 +41,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
 
     let token_re = regex::Regex::new(concat!(
         r"(?P<identifier>\p{Alphabetic}\w*)|",
+        r"(?P<number>\d+\.?\d*)|",
         r"(?P<semicolon>;)|",
         r"(?P<lparen>\()|",
         r"(?P<rparen>\))|",
@@ -57,19 +60,24 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 "fn" => Token::Fn,
                 "let" => Token::Let,
                 "return" => Token::Return,
-                "u8" => Token::Type(Type::Unsigned8),
-                "u16" => Token::Type(Type::Unsigned16),
-                "u32" => Token::Type(Type::Unsigned16),
-                "u64" => Token::Type(Type::Unsigned16),
-                "i8" => Token::Type(Type::Signed8),
-                "i16" => Token::Type(Type::Signed16),
-                "i32" => Token::Type(Type::Signed16),
-                "i64" => Token::Type(Type::Signed16),
-                "f32" => Token::Type(Type::Float32),
-                "f64" => Token::Type(Type::Float64),
+                "export" => Token::Export,
+                "u8" => Token::Primitive(Primitive::Unsigned8),
+                "u16" => Token::Primitive(Primitive::Unsigned16),
+                "u32" => Token::Primitive(Primitive::Unsigned16),
+                "u64" => Token::Primitive(Primitive::Unsigned16),
+                "i8" => Token::Primitive(Primitive::Signed8),
+                "i16" => Token::Primitive(Primitive::Signed16),
+                "i32" => Token::Primitive(Primitive::Signed16),
+                "i64" => Token::Primitive(Primitive::Signed16),
+                "f32" => Token::Primitive(Primitive::Float32),
+                "f64" => Token::Primitive(Primitive::Float64),
                 identifier => Token::Identifier(identifier.to_string()),
             };
             Ok(identifier)
+        } else if capture.name("number").is_some() {
+            Ok(Token::Number(
+                capture.name("number").unwrap().as_str().to_string(),
+            ))
         } else if capture.name("semicolon").is_some() {
             Ok(Token::Semicolon)
         } else if capture.name("lparen").is_some() {
