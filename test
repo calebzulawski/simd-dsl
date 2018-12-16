@@ -1,11 +1,11 @@
 # Adds two numbers and takes the absolute value
-fn add_abs(i32 a, f64 b) -> i32
+fn add_abs(a: i32, b: f64) -> i32
 {
     let sum = add(a, b); # an inline comment
     return abs(sum);
 }
 
-fn increment(u8 x) -> u32
+fn increment(x: u8) -> u32
 {
     return add(x, 1);
 }
