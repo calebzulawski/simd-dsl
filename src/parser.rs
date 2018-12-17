@@ -9,12 +9,13 @@ pub enum ASTNode {
 #[derive(PartialEq, Clone, Debug)]
 pub enum Statement {
     Return(ReturnStatement),
+    Scope(ScopeStatement),
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Expression {
     Literal(String),
-    Variable(String),
+    Identifier(String),
     Call(CallExpression),
 }
 
@@ -34,12 +35,17 @@ pub struct Prototype {
 #[derive(PartialEq, Clone, Debug)]
 pub struct Function {
     pub prototype: Prototype,
-    pub body: Vec<Statement>,
+    pub body: ScopeStatement,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct ReturnStatement {
     pub expression: Expression,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct ScopeStatement {
+    pub statements: Vec<Statement>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -58,6 +64,15 @@ macro_rules! expect_token (
             _ => Err($error.to_string())
         }?
     );
+    ([ $($token:pat, $result:expr);+ ] else $notmatched:block <= $tokens:ident, $error:expr) => (
+        match $tokens.pop() {
+            $(
+            Some($token) => $result,
+            )+
+            None => Err(concat!("Ran out of tokens: ", $error).to_string()),
+            _ => {$notmatched}
+        }?
+    )
 );
 
 pub fn parse(tokens: &[Token]) -> Result<Vec<ASTNode>, String> {
@@ -78,8 +93,14 @@ pub fn parse(tokens: &[Token]) -> Result<Vec<ASTNode>, String> {
     Ok(ast)
 }
 
-pub fn parse_function(mut tokens: &mut Vec<Token>) -> Result<ASTNode, String> {
+fn parse_function(mut tokens: &mut Vec<Token>) -> Result<ASTNode, String> {
     let prototype = parse_prototype(&mut tokens)?;
+
+    expect_token!(
+        [Token::LeftBrace, Ok(())] <= tokens,
+        "expected { before function body"
+    );
+
     let body = parse_scope(&mut tokens)?;
     Ok(ASTNode::Function(Function {
         prototype: prototype,
@@ -87,7 +108,7 @@ pub fn parse_function(mut tokens: &mut Vec<Token>) -> Result<ASTNode, String> {
     }))
 }
 
-pub fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
+fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
     let name = expect_token!(
         [Token::Identifier(identifier), Ok(identifier)] <= tokens,
         "expected function name"
@@ -120,7 +141,9 @@ pub fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
             type_name: type_name,
         });
 
-        expect_token!([Token::Comma, Ok(()); Token::RightParen, break] <= tokens, "expected ',' or ')' after function parameters");
+        expect_token!([Token::Comma, Ok(());
+                      Token::RightParen, break] <= tokens,
+                      "expected ',' or ')' after function parameters");
     }
 
     expect_token!([Token::Arrow, Ok(())] <= tokens, "expected '->'");
@@ -137,25 +160,61 @@ pub fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
     })
 }
 
-pub fn parse_scope(tokens: &mut Vec<Token>) -> Result<Vec<Statement>, String> {
-    expect_token!(
-        [Token::LeftBrace, Ok(())] <= tokens,
-        "expected { before function body"
-    );
-
-    let statements = Vec::new();
-
+fn parse_scope(tokens: &mut Vec<Token>) -> Result<ScopeStatement, String> {
+    let mut statements = Vec::new();
     loop {
-        if tokens.last() == Some(&Token::RightBrace) {
-            tokens.pop();
-            break;
-        } else if tokens.last() == None {
-            return Err("ran out of tokens".to_string());
-        } else {
-            // statements.push(parse_statement(tokens)?);
-            tokens.pop(); // ignore all statements for now
-        }
+        let statement = expect_token!(
+            [Token::RightBrace, break;
+            Token::LeftBrace, Ok(Statement::Scope(parse_scope(tokens)?));
+            Token::Return, parse_return(tokens)] <= tokens, "expected statement");
+        statements.push(statement);
     }
 
-    Ok(statements)
+    Ok(ScopeStatement {
+        statements: statements,
+    })
+}
+
+fn parse_return(tokens: &mut Vec<Token>) -> Result<Statement, String> {
+    let expression = parse_expression(tokens)?;
+    expect_token!(
+        [Token::Semicolon, Ok(())] <= tokens,
+        "expected semicolon at end of return statement"
+    );
+    Ok(Statement::Return(ReturnStatement {
+        expression: expression,
+    }))
+}
+
+fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+    Ok(
+        expect_token!([Token::Identifier(identifier), parse_identifier(tokens, identifier);
+                  Token::Number(number), Ok(Expression::Literal(number))] <= tokens,
+                  "expected expression"),
+    )
+}
+
+fn parse_identifier(tokens: &mut Vec<Token>, identifier: String) -> Result<Expression, String> {
+    match tokens.last() {
+        Some(Token::LeftParen) => {
+            tokens.pop(); // eat the paren
+            let mut args = Vec::new();
+            loop {
+                if tokens.last() == Some(&Token::RightParen) {
+                    tokens.pop();
+                    break;
+                }
+                let arg = parse_expression(tokens)?;
+                args.push(arg);
+                expect_token!([Token::RightParen, break;
+                              Token::Comma, continue] <= tokens,
+                              "expected ')' or ','");
+            }
+            Ok(Expression::Call(CallExpression {
+                name: identifier,
+                args: args,
+            }))
+        }
+        _ => Ok(Expression::Identifier(identifier)),
+    }
 }

@@ -1,7 +1,7 @@
 # Adds two numbers and takes the absolute value
 fn add_abs(a: i32, b: f64) -> i32
 {
-    let sum = add(a, b); # an inline comment
+#    let sum = add(a, b); # an inline comment
     return abs(sum);
 }
 

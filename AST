@@ -2,7 +2,7 @@ program          : [definition]*;
 definition       : Fn prototype scope;
 prototype        : Identifier LeftParen [Identifier Colon Primitive Comma ?]* RightParen Arrow Primitive;
 scope            : LeftBrace [statement]* RightBrace;
-statement        : [let_statement | return_statement];
+statement        : [let_statement | return_statement] Semicolon;
 let_statement    : Let Identifier [Colon Primitive] ? Equals expression;
 return_statement : Return expression;
 expression       : [Identifier | Number | call_expr];
