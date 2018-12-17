@@ -9,6 +9,8 @@ pub enum ASTNode {
 #[derive(PartialEq, Clone, Debug)]
 pub enum Statement {
     Return(ReturnStatement),
+    Let(LetStatement),
+    Assignment(AssignmentStatement),
     Scope(ScopeStatement),
 }
 
@@ -46,6 +48,20 @@ pub struct ReturnStatement {
 #[derive(PartialEq, Clone, Debug)]
 pub struct ScopeStatement {
     pub statements: Vec<Statement>,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct LetStatement {
+    pub name: String,
+    pub mutable: bool,
+    pub type_name: Option<Primitive>,
+    pub initializer: Expression,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct AssignmentStatement {
+    pub name: String,
+    pub expression: Expression,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -166,7 +182,22 @@ fn parse_scope(tokens: &mut Vec<Token>) -> Result<ScopeStatement, String> {
         let statement = expect_token!(
             [Token::RightBrace, break;
             Token::LeftBrace, Ok(Statement::Scope(parse_scope(tokens)?));
+            Token::Let, parse_let(tokens);
+            Token::Identifier(identifier), parse_identifier_statement(tokens, identifier);
             Token::Return, parse_return(tokens)] <= tokens, "expected statement");
+
+        // Eat semicolon on non-scope statements
+        match statement {
+            Statement::Scope(_) => (),
+            _ => {
+                expect_token!(
+                    [Token::Semicolon, Ok(())] <= tokens,
+                    "expected semicolon at end of statement"
+                );
+                ()
+            }
+        }
+
         statements.push(statement);
     }
 
@@ -177,24 +208,62 @@ fn parse_scope(tokens: &mut Vec<Token>) -> Result<ScopeStatement, String> {
 
 fn parse_return(tokens: &mut Vec<Token>) -> Result<Statement, String> {
     let expression = parse_expression(tokens)?;
-    expect_token!(
-        [Token::Semicolon, Ok(())] <= tokens,
-        "expected semicolon at end of return statement"
-    );
     Ok(Statement::Return(ReturnStatement {
         expression: expression,
     }))
 }
 
+fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
+    let mutable = match tokens.last() {
+        Some(Token::Mut) => {
+            tokens.pop();
+            true
+        }
+        _ => false,
+    };
+
+    let name = expect_token!(
+        [Token::Identifier(identifier), Ok(identifier)] <= tokens,
+        "expected variable name"
+    );
+
+    let type_name = match tokens.last() {
+        Some(Token::Colon) => {
+            tokens.pop();
+            Some(expect_token!(
+                [Token::Primitive(primitive), Ok(primitive)] <= tokens,
+                "expected type after ':'"
+            ))
+        }
+        _ => None,
+    };
+
+    expect_token!(
+        [Token::Equals, Ok(())] <= tokens,
+        "expected '=' after variable declaration"
+    );
+    let initializer = parse_expression(tokens)?;
+
+    Ok(Statement::Let(LetStatement {
+        name: name,
+        type_name: type_name,
+        mutable: mutable,
+        initializer: initializer,
+    }))
+}
+
 fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     Ok(
-        expect_token!([Token::Identifier(identifier), parse_identifier(tokens, identifier);
+        expect_token!([Token::Identifier(identifier), parse_identifier_expression(tokens, identifier);
                   Token::Number(number), Ok(Expression::Literal(number))] <= tokens,
                   "expected expression"),
     )
 }
 
-fn parse_identifier(tokens: &mut Vec<Token>, identifier: String) -> Result<Expression, String> {
+fn parse_identifier_expression(
+    tokens: &mut Vec<Token>,
+    identifier: String,
+) -> Result<Expression, String> {
     match tokens.last() {
         Some(Token::LeftParen) => {
             tokens.pop(); // eat the paren
@@ -217,4 +286,21 @@ fn parse_identifier(tokens: &mut Vec<Token>, identifier: String) -> Result<Expre
         }
         _ => Ok(Expression::Identifier(identifier)),
     }
+}
+
+fn parse_identifier_statement(
+    tokens: &mut Vec<Token>,
+    identifier: String,
+) -> Result<Statement, String> {
+    // assignment
+    expect_token!(
+        [Token::Equals, Ok(())] <= tokens,
+        "expected '=' in assignment"
+    );
+    let expression = parse_expression(tokens)?;
+
+    Ok(Statement::Assignment(AssignmentStatement {
+        name: identifier,
+        expression: expression,
+    }))
 }

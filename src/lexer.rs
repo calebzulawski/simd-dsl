@@ -16,6 +16,7 @@ pub enum Primitive {
 pub enum Token {
     Fn,
     Let,
+    Mut,
     Return,
     Semicolon,
     LeftParen,
@@ -58,6 +59,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             let identifier = match capture.name("identifier").unwrap().as_str() {
                 "fn" => Token::Fn,
                 "let" => Token::Let,
+                "mut" => Token::Mut,
                 "return" => Token::Return,
                 "u8" => Token::Primitive(Primitive::Unsigned8),
                 "u16" => Token::Primitive(Primitive::Unsigned16),
