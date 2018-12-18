@@ -7,4 +7,4 @@ let_statement        : Let Mutable ? Identifier [Colon Primitive] ? Equals expre
 return_statement     : Return expression;
 assignment_statement : Identifier Equals expression;
 expression           : [Identifier | Number | call_expr];
-call_expr            : Identifier LeftParen [expression Comma ?]* RightParen;
+call_expr            : [Identifier | Builtin] LeftParen [expression Comma ?]* RightParen;

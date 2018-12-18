@@ -28,6 +28,7 @@ pub enum Token {
     Equals,
     Arrow,
     Identifier(String),
+    Builtin(String),
     Primitive(Primitive),
     Number(String),
 }
@@ -41,6 +42,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
 
     let token_re = regex::Regex::new(concat!(
         r"(?P<identifier>\p{Alphabetic}\w*)|",
+        r"(?P<builtin>%\p{Alphabetic}\w*)|",
         r"(?P<number>\d+\.?\d*)|",
         r"(?P<semicolon>;)|",
         r"(?P<lparen>\()|",
@@ -74,6 +76,10 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 identifier => Token::Identifier(identifier.to_string()),
             };
             Ok(identifier)
+        } else if capture.name("builtin").is_some() {
+            Ok(Token::Builtin(
+                capture.name("builtin").unwrap().as_str()[1..].to_string(),
+            ))
         } else if capture.name("number").is_some() {
             Ok(Token::Number(
                 capture.name("number").unwrap().as_str().to_string(),

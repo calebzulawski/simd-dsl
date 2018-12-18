@@ -66,6 +66,7 @@ pub struct AssignmentStatement {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct CallExpression {
+    pub builtin: bool,
     pub name: String,
     pub args: Vec<Expression>,
 }
@@ -255,9 +256,34 @@ fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
 fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     Ok(
         expect_token!([Token::Identifier(identifier), parse_identifier_expression(tokens, identifier);
-                  Token::Number(number), Ok(Expression::Literal(number))] <= tokens,
-                  "expected expression"),
+                      Token::Builtin(builtin), parse_builtin(tokens, builtin);
+                      Token::Number(number), Ok(Expression::Literal(number))] <= tokens,
+                      "expected expression"),
     )
+}
+
+fn parse_builtin(tokens: &mut Vec<Token>, builtin: String) -> Result<Expression, String> {
+    expect_token!(
+        [Token::LeftParen, Ok(())] <= tokens,
+        "expected '(' after builtin function call"
+    );
+    let mut args = Vec::new();
+    loop {
+        if tokens.last() == Some(&Token::RightParen) {
+            tokens.pop();
+            break;
+        }
+        let arg = parse_expression(tokens)?;
+        args.push(arg);
+        expect_token!([Token::RightParen, break;
+                              Token::Comma, continue] <= tokens,
+                              "expected ')' or ','");
+    }
+    Ok(Expression::Call(CallExpression {
+        builtin: true,
+        name: builtin,
+        args: args,
+    }))
 }
 
 fn parse_identifier_expression(
@@ -280,6 +306,7 @@ fn parse_identifier_expression(
                               "expected ')' or ','");
             }
             Ok(Expression::Call(CallExpression {
+                builtin: false,
                 name: identifier,
                 args: args,
             }))
