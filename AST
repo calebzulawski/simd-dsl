@@ -1,9 +1,10 @@
 program              : [definition]*;
 definition           : Fn prototype scope;
-prototype            : Identifier LeftParen [Identifier Colon Primitive Comma ?]* RightParen Arrow Primitive;
+prototype            : Identifier LeftParen [variable Colon Primitive Comma ?]* RightParen Arrow Primitive;
+variable             : Dollar ? Mutable ? Identifier
 scope                : LeftBrace [statement | scope]* RightBrace;
 statement            : [let_statement | return_statement | assignment_statement] Semicolon;
-let_statement        : Let Mutable ? Identifier [Colon Primitive] ? Equals expression;
+let_statement        : variable [Colon Primitive] ? Equals expression;
 return_statement     : Return expression;
 assignment_statement : Identifier Equals expression;
 expression           : [Identifier | Number | call_expr];
