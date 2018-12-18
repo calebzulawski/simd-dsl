@@ -276,8 +276,8 @@ fn parse_builtin(tokens: &mut Vec<Token>, builtin: String) -> Result<Expression,
         let arg = parse_expression(tokens)?;
         args.push(arg);
         expect_token!([Token::RightParen, break;
-                              Token::Comma, continue] <= tokens,
-                              "expected ')' or ','");
+                      Token::Comma, continue] <= tokens,
+                      "expected ')' or ','");
     }
     Ok(Expression::Call(CallExpression {
         builtin: true,
