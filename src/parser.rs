@@ -22,11 +22,16 @@ pub enum Expression {
 }
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct Variable {
+pub struct Type {
     pub scalar: bool,
-    pub mutable: bool,
     pub type_name: Primitive,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Variable {
+    pub mutable: bool,
     pub name: String,
+    pub type_name: Option<Type>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -54,10 +59,9 @@ pub struct ScopeStatement {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct LetStatement {
-    pub scalar: bool,
     pub mutable: bool,
     pub name: String,
-    pub type_name: Option<Primitive>,
+    pub type_name: Option<Type>,
     pub initializer: Expression,
 }
 
@@ -141,14 +145,6 @@ fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
 
     let mut args = Vec::new();
     loop {
-        let scalar = match tokens.last() {
-            Some(Token::Dollar) => {
-                tokens.pop();
-                true
-            }
-            _ => false,
-        };
-
         let mutable = match tokens.last() {
             Some(Token::Mut) => {
                 tokens.pop();
@@ -162,18 +158,9 @@ fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
             "expected function argument name"
         );
 
-        expect_token!(
-            [Token::Colon, Ok(())] <= tokens,
-            "expected : after argument name"
-        );
-
-        let type_name = expect_token!(
-            [Token::Primitive(primitive), Ok(primitive)] <= tokens,
-            "expected argument type"
-        );
+        let type_name = Some(parse_type(tokens)?.ok_or("expected type in function prototype")?);
 
         args.push(Variable {
-            scalar: scalar,
             mutable: mutable,
             name: name,
             type_name: type_name,
@@ -235,15 +222,34 @@ fn parse_return(tokens: &mut Vec<Token>) -> Result<Statement, String> {
     }))
 }
 
-fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
-    let scalar = match tokens.last() {
-        Some(Token::Dollar) => {
+fn parse_type(tokens: &mut Vec<Token>) -> Result<Option<Type>, String> {
+    match tokens.last() {
+        Some(Token::Colon) => {
             tokens.pop();
-            true
-        }
-        _ => false,
-    };
 
+            let scalar = match tokens.last() {
+                Some(Token::Scalar) => {
+                    tokens.pop();
+                    true
+                }
+                _ => false,
+            };
+
+            let type_name = expect_token!(
+                [Token::Primitive(primitive), Ok(primitive)] <= tokens,
+                "expected type after ':'"
+            );
+
+            Ok(Some(Type {
+                scalar: scalar,
+                type_name: type_name,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
     let mutable = match tokens.last() {
         Some(Token::Mut) => {
             tokens.pop();
@@ -257,16 +263,7 @@ fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
         "expected variable name"
     );
 
-    let type_name = match tokens.last() {
-        Some(Token::Colon) => {
-            tokens.pop();
-            Some(expect_token!(
-                [Token::Primitive(primitive), Ok(primitive)] <= tokens,
-                "expected type after ':'"
-            ))
-        }
-        _ => None,
-    };
+    let type_name = parse_type(tokens)?;
 
     expect_token!(
         [Token::Equals, Ok(())] <= tokens,
@@ -275,7 +272,6 @@ fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
     let initializer = parse_expression(tokens)?;
 
     Ok(Statement::Let(LetStatement {
-        scalar: scalar,
         mutable: mutable,
         name: name,
         type_name: type_name,

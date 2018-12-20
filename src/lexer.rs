@@ -18,7 +18,7 @@ pub enum Token {
     Let,
     Mut,
     Return,
-    Dollar,
+    Scalar,
     Semicolon,
     LeftParen,
     RightParen,
@@ -45,7 +45,6 @@ pub fn tokenize(input: &str) -> Vec<Token> {
         r"(?P<identifier>\p{Alphabetic}\w*)|",
         r"(?P<builtin>%\p{Alphabetic}\w*)|",
         r"(?P<number>\d+\.?\d*)|",
-        r"(?P<dollar>\$)|",
         r"(?P<semicolon>;)|",
         r"(?P<lparen>\()|",
         r"(?P<rparen>\))|",
@@ -65,6 +64,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 "let" => Token::Let,
                 "mut" => Token::Mut,
                 "return" => Token::Return,
+                "scalar" => Token::Scalar,
                 "u8" => Token::Primitive(Primitive::Unsigned8),
                 "u16" => Token::Primitive(Primitive::Unsigned16),
                 "u32" => Token::Primitive(Primitive::Unsigned32),
@@ -86,8 +86,6 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             Ok(Token::Number(
                 capture.name("number").unwrap().as_str().to_string(),
             ))
-        } else if capture.name("dollar").is_some() {
-            Ok(Token::Dollar)
         } else if capture.name("semicolon").is_some() {
             Ok(Token::Semicolon)
         } else if capture.name("lparen").is_some() {

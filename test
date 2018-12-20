@@ -8,9 +8,9 @@ fn add_abs(a: i32, b: i32) -> f32
     return %abs(sum);
 }
 
-fn increase(x: u8, $i: u8) -> u8
+fn increase(x: u8, i: scalar u8) -> u8
 {
-    let $mut amount: u8 = 0;
+    let mut amount: scalar u8 = 0;
     amount = %add(amount, i);
     return %add(x, amount);
 }
