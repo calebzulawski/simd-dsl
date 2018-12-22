@@ -2,7 +2,7 @@ use crate::lexer::Primitive;
 use crate::lexer::Token;
 
 #[derive(PartialEq, Clone, Debug)]
-pub enum ASTNode {
+pub enum TopNode {
     Function(Function),
 }
 
@@ -17,7 +17,7 @@ pub enum Statement {
 #[derive(PartialEq, Clone, Debug)]
 pub enum Expression {
     Literal(String),
-    Identifier(String),
+    Variable(String),
     Call(CallExpression),
 }
 
@@ -78,7 +78,28 @@ pub struct CallExpression {
     pub args: Vec<Expression>,
 }
 
-macro_rules! expect_token (
+macro_rules! check_token (
+    ([ $($token:pat, $result:expr);+ ] <= $tokens:ident, $error:expr) => (
+        match $tokens.last().clone() {
+            $(
+            Some($token) => $result,
+            )+
+            None => Err(concat!("Ran out of tokens: ", $error).to_string()),
+            _ => Err($error.to_string())
+        }?
+    );
+    ([ $($token:pat, $result:expr);+ ] else $notmatched:block <= $tokens:ident, $error:expr) => (
+        match $tokens.last().clone() {
+            $(
+            Some($token) => $result,
+            )+
+            None => Err(concat!("Ran out of tokens: ", $error).to_string()),
+            _ => {$notmatched}
+        }?
+    )
+);
+
+macro_rules! eat_token (
     ([ $($token:pat, $result:expr);+ ] <= $tokens:ident, $error:expr) => (
         match $tokens.pop() {
             $(
@@ -99,14 +120,26 @@ macro_rules! expect_token (
     )
 );
 
-pub fn parse(tokens: &[Token]) -> Result<Vec<ASTNode>, String> {
+macro_rules! eat_optional_token (
+    ($token:pat, $tokens:ident) => (
+        match $tokens.last() {
+            Some($token) => {
+                $tokens.pop();
+                true
+            }
+            _ => false
+        }
+    )
+);
+
+pub fn parse(tokens: &[Token]) -> Result<Vec<TopNode>, String> {
     let mut remaining = tokens.to_vec();
     remaining.reverse();
 
     let mut ast = Vec::new();
 
     loop {
-        let result = match remaining.pop() {
+        let result = match remaining.last().clone() {
             Some(Token::Fn) => parse_function(&mut remaining),
             None => break,
             _ => Err("expected function definition".to_string()),
@@ -117,43 +150,30 @@ pub fn parse(tokens: &[Token]) -> Result<Vec<ASTNode>, String> {
     Ok(ast)
 }
 
-fn parse_function(mut tokens: &mut Vec<Token>) -> Result<ASTNode, String> {
+fn parse_function(mut tokens: &mut Vec<Token>) -> Result<TopNode, String> {
     let prototype = parse_prototype(&mut tokens)?;
-
-    expect_token!(
-        [Token::LeftBrace, Ok(())] <= tokens,
-        "expected { before function body"
-    );
-
     let body = parse_scope(&mut tokens)?;
-    Ok(ASTNode::Function(Function {
+    Ok(TopNode::Function(Function {
         prototype: prototype,
         body: body,
     }))
 }
 
 fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
-    let name = expect_token!(
+    eat_token!([Token::Fn, Ok(())] <= tokens, "expected 'fn'");
+
+    let name = eat_token!(
         [Token::Identifier(identifier), Ok(identifier)] <= tokens,
         "expected function name"
     );
 
-    expect_token!(
-        [Token::LeftParen, Ok(())] <= tokens,
-        "expected ( after function name"
-    );
+    eat_token!([Token::LeftParen, Ok(())] <= tokens, "expected '('");
 
     let mut args = Vec::new();
     loop {
-        let mutable = match tokens.last() {
-            Some(Token::Mut) => {
-                tokens.pop();
-                true
-            }
-            _ => false,
-        };
+        let mutable = eat_optional_token!(Token::Mut, tokens);
 
-        let name = expect_token!(
+        let name = eat_token!(
             [Token::Identifier(identifier), Ok(identifier)] <= tokens,
             "expected function argument name"
         );
@@ -166,14 +186,14 @@ fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
             type_name: type_name,
         });
 
-        expect_token!([Token::Comma, Ok(());
-                      Token::RightParen, break] <= tokens,
-                      "expected ',' or ')' after function parameters");
+        eat_token!([Token::Comma, Ok(());
+                    Token::RightParen, break] <= tokens,
+                    "expected ',' or ')'");
     }
 
-    expect_token!([Token::Arrow, Ok(())] <= tokens, "expected '->'");
+    eat_token!([Token::Arrow, Ok(())] <= tokens, "expected '->'");
 
-    let returns = expect_token!(
+    let returns = eat_token!(
         [Token::Primitive(primitive), Ok(primitive)] <= tokens,
         "expected type"
     );
@@ -187,22 +207,22 @@ fn parse_prototype(tokens: &mut Vec<Token>) -> Result<Prototype, String> {
 
 fn parse_scope(tokens: &mut Vec<Token>) -> Result<ScopeStatement, String> {
     let mut statements = Vec::new();
+
+    eat_token!([Token::LeftBrace, Ok(())] <= tokens, "expected '{'");
+
     loop {
-        let statement = expect_token!(
+        let statement = check_token!(
             [Token::RightBrace, break;
-            Token::LeftBrace, Ok(Statement::Scope(parse_scope(tokens)?));
-            Token::Let, parse_let(tokens);
-            Token::Identifier(identifier), parse_identifier_statement(tokens, identifier);
-            Token::Return, parse_return(tokens)] <= tokens, "expected statement");
+             Token::LeftBrace, Ok(Statement::Scope(parse_scope(tokens)?));
+             Token::Let, parse_let(tokens);
+             Token::Identifier(identifier), parse_assignment(tokens);
+             Token::Return, parse_return(tokens)] <= tokens, "expected statement");
 
         // Eat semicolon on non-scope statements
         match statement {
             Statement::Scope(_) => (),
             _ => {
-                expect_token!(
-                    [Token::Semicolon, Ok(())] <= tokens,
-                    "expected semicolon at end of statement"
-                );
+                eat_token!([Token::Semicolon, Ok(())] <= tokens, "expected ';'");
                 ()
             }
         }
@@ -210,12 +230,15 @@ fn parse_scope(tokens: &mut Vec<Token>) -> Result<ScopeStatement, String> {
         statements.push(statement);
     }
 
+    eat_token!([Token::RightBrace, Ok(())] <= tokens, "expected '}'");
+
     Ok(ScopeStatement {
         statements: statements,
     })
 }
 
 fn parse_return(tokens: &mut Vec<Token>) -> Result<Statement, String> {
+    eat_token!([Token::Return, Ok(())] <= tokens, "expected 'return'");
     let expression = parse_expression(tokens)?;
     Ok(Statement::Return(ReturnStatement {
         expression: expression,
@@ -227,15 +250,9 @@ fn parse_type(tokens: &mut Vec<Token>) -> Result<Option<Type>, String> {
         Some(Token::Colon) => {
             tokens.pop();
 
-            let scalar = match tokens.last() {
-                Some(Token::Scalar) => {
-                    tokens.pop();
-                    true
-                }
-                _ => false,
-            };
+            let scalar = eat_optional_token!(Token::Scalar, tokens);
 
-            let type_name = expect_token!(
+            let type_name = eat_token!(
                 [Token::Primitive(primitive), Ok(primitive)] <= tokens,
                 "expected type after ':'"
             );
@@ -250,22 +267,17 @@ fn parse_type(tokens: &mut Vec<Token>) -> Result<Option<Type>, String> {
 }
 
 fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
-    let mutable = match tokens.last() {
-        Some(Token::Mut) => {
-            tokens.pop();
-            true
-        }
-        _ => false,
-    };
+    eat_token!([Token::Let, Ok(())] <= tokens, "expected 'let'");
+    let mutable = eat_optional_token!(Token::Mut, tokens);
 
-    let name = expect_token!(
+    let name = eat_token!(
         [Token::Identifier(identifier), Ok(identifier)] <= tokens,
         "expected variable name"
     );
 
     let type_name = parse_type(tokens)?;
 
-    expect_token!(
+    eat_token!(
         [Token::Equals, Ok(())] <= tokens,
         "expected '=' after variable declaration"
     );
@@ -281,30 +293,35 @@ fn parse_let(tokens: &mut Vec<Token>) -> Result<Statement, String> {
 
 fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     Ok(
-        expect_token!([Token::Identifier(identifier), parse_identifier_expression(tokens, identifier);
-                      Token::Builtin(builtin), parse_builtin(tokens, builtin);
-                      Token::Number(number), Ok(Expression::Literal(number))] <= tokens,
+        check_token!([Token::Identifier(_), parse_identifier_expression(tokens);
+                      Token::Builtin(_), parse_builtin(tokens);
+                      Token::Number(_), parse_literal(tokens)] <= tokens,
                       "expected expression"),
     )
 }
 
-fn parse_builtin(tokens: &mut Vec<Token>, builtin: String) -> Result<Expression, String> {
-    expect_token!(
-        [Token::LeftParen, Ok(())] <= tokens,
-        "expected '(' after builtin function call"
-    );
+fn parse_call_args(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {
+    eat_token!([Token::LeftParen, Ok(())] <= tokens, "expected '('");
     let mut args = Vec::new();
     loop {
-        if tokens.last() == Some(&Token::RightParen) {
-            tokens.pop();
+        if eat_optional_token!(Token::RightParen, tokens) {
             break;
         }
         let arg = parse_expression(tokens)?;
         args.push(arg);
-        expect_token!([Token::RightParen, break;
-                      Token::Comma, continue] <= tokens,
-                      "expected ')' or ','");
+        eat_token!([Token::RightParen, break;
+                    Token::Comma, continue] <= tokens,
+                    "expected ',' or ')'");
     }
+    Ok(args)
+}
+
+fn parse_builtin(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+    let builtin = eat_token!(
+        [Token::Builtin(builtin), Ok(builtin)] <= tokens,
+        "expected builtin name"
+    );
+    let args = parse_call_args(tokens)?;
     Ok(Expression::Call(CallExpression {
         builtin: true,
         name: builtin,
@@ -312,48 +329,41 @@ fn parse_builtin(tokens: &mut Vec<Token>, builtin: String) -> Result<Expression,
     }))
 }
 
-fn parse_identifier_expression(
-    tokens: &mut Vec<Token>,
-    identifier: String,
-) -> Result<Expression, String> {
+fn parse_identifier_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+    let identifier = eat_token!(
+        [Token::Identifier(identifier), Ok(identifier)] <= tokens,
+        "expected identifier"
+    );
     match tokens.last() {
         Some(Token::LeftParen) => {
-            tokens.pop(); // eat the paren
-            let mut args = Vec::new();
-            loop {
-                if tokens.last() == Some(&Token::RightParen) {
-                    tokens.pop();
-                    break;
-                }
-                let arg = parse_expression(tokens)?;
-                args.push(arg);
-                expect_token!([Token::RightParen, break;
-                              Token::Comma, continue] <= tokens,
-                              "expected ')' or ','");
-            }
+            let args = parse_call_args(tokens)?;
             Ok(Expression::Call(CallExpression {
                 builtin: false,
                 name: identifier,
                 args: args,
             }))
         }
-        _ => Ok(Expression::Identifier(identifier)),
+        _ => Ok(Expression::Variable(identifier)),
     }
 }
 
-fn parse_identifier_statement(
-    tokens: &mut Vec<Token>,
-    identifier: String,
-) -> Result<Statement, String> {
-    // assignment
-    expect_token!(
-        [Token::Equals, Ok(())] <= tokens,
-        "expected '=' in assignment"
+fn parse_assignment(tokens: &mut Vec<Token>) -> Result<Statement, String> {
+    let identifier = eat_token!(
+        [Token::Identifier(identifier), Ok(identifier)] <= tokens,
+        "expected identifier"
     );
+    eat_token!([Token::Equals, Ok(())] <= tokens, "expected '='");
     let expression = parse_expression(tokens)?;
 
     Ok(Statement::Assignment(AssignmentStatement {
         name: identifier,
         expression: expression,
     }))
+}
+
+fn parse_literal(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+    Ok(eat_token!(
+        [Token::Number(number), Ok(Expression::Literal(number))] <= tokens,
+        "expected number"
+    ))
 }
