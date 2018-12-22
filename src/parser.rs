@@ -1,6 +1,8 @@
 use crate::lexer::Primitive;
 use crate::lexer::Token;
 
+// AST node variants
+
 #[derive(PartialEq, Clone, Debug)]
 pub enum TopNode {
     Function(Function),
@@ -16,36 +18,20 @@ pub enum Statement {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Expression {
-    Literal(String),
+    Literal(LiteralExpression),
     Variable(String),
     Call(CallExpression),
 }
 
-#[derive(PartialEq, Clone, Debug)]
-pub struct Type {
-    pub scalar: bool,
-    pub type_name: Primitive,
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub struct Variable {
-    pub mutable: bool,
-    pub name: String,
-    pub type_name: Type,
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub struct Signature {
-    pub name: String,
-    pub args: Vec<Variable>,
-    pub returns: Primitive,
-}
+// Top level AST nodes
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Function {
     pub signature: Signature,
     pub body: ScopeStatement,
 }
+
+// Statements
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct ReturnStatement {
@@ -69,12 +55,45 @@ pub struct AssignmentStatement {
     pub expression: Expression,
 }
 
+// Expressions
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum LiteralExpression {
+    NonNegative(u64),
+    Negative(i64),
+    Float(f64),
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct CallExpression {
     pub builtin: bool,
     pub name: String,
     pub args: Vec<Expression>,
 }
+
+// Contents
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Type {
+    pub scalar: bool,
+    pub type_name: Primitive,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Variable {
+    pub mutable: bool,
+    pub name: String,
+    pub type_name: Type,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Signature {
+    pub name: String,
+    pub args: Vec<Variable>,
+    pub returns: Primitive,
+}
+
+// Contains the variables and functions that are in scope
 
 struct ScopeContents {
     pub functions: std::collections::HashMap<String, Signature>,
@@ -138,6 +157,8 @@ impl ScopeContents {
     }
 }
 
+// Helpers for checking the contents of tokens
+
 macro_rules! check_token (
     ([ $($token:pat, $result:expr);+ ] <= $tokens:ident, $error:expr) => (
         match $tokens.last().clone() {
@@ -191,6 +212,8 @@ macro_rules! eat_optional_token (
         }
     )
 );
+
+// Parse functions
 
 pub fn parse(tokens: &[Token]) -> Result<Vec<TopNode>, String> {
     let mut remaining = tokens.to_vec();
@@ -377,9 +400,16 @@ fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     Ok(
         check_token!([Token::Identifier(_), parse_identifier_expression(tokens);
                       Token::Builtin(_), parse_builtin(tokens);
-                      Token::Number(_), parse_literal(tokens)] <= tokens,
+                      Token::Negative(val), pop_and_pass(tokens, Expression::Literal(LiteralExpression::Negative(*val)));
+                      Token::NonNegative(val), pop_and_pass(tokens, Expression::Literal(LiteralExpression::NonNegative(*val)));
+                      Token::Float(val), pop_and_pass(tokens, Expression::Literal(LiteralExpression::Float(*val)))] <= tokens,
                       "expected expression"),
     )
+}
+
+fn pop_and_pass<T>(tokens: &mut Vec<Token>, val: T) -> Result<T, String> {
+    tokens.pop();
+    Ok(val)
 }
 
 fn parse_call_args(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {
@@ -446,11 +476,4 @@ fn parse_assignment(
         name: identifier,
         expression: expression,
     }))
-}
-
-fn parse_literal(tokens: &mut Vec<Token>) -> Result<Expression, String> {
-    Ok(eat_token!(
-        [Token::Number(number), Ok(Expression::Literal(number))] <= tokens,
-        "expected number"
-    ))
 }

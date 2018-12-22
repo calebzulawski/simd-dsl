@@ -31,7 +31,9 @@ pub enum Token {
     Identifier(String),
     Builtin(String),
     Primitive(Primitive),
-    Number(String),
+    NonNegative(u64),
+    Negative(i64),
+    Float(f64),
 }
 
 pub fn tokenize(input: &str) -> Vec<Token> {
@@ -44,7 +46,9 @@ pub fn tokenize(input: &str) -> Vec<Token> {
     let token_re = regex::Regex::new(concat!(
         r"(?P<identifier>\p{Alphabetic}\w*)|",
         r"(?P<builtin>%\p{Alphabetic}\w*)|",
-        r"(?P<number>\d+\.?\d*)|",
+        r"(?P<float>\-?\d+\.\d*)|",
+        r"(?P<negative>\-\d+)|",
+        r"(?P<nonnegative>\d+)|",
         r"(?P<semicolon>;)|",
         r"(?P<lparen>\()|",
         r"(?P<rparen>\))|",
@@ -78,13 +82,36 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 identifier => Token::Identifier(identifier.to_string()),
             };
             Ok(identifier)
+        } else if capture.name("float").is_some() {
+            Ok(Token::Float(
+                capture
+                    .name("float")
+                    .unwrap()
+                    .as_str()
+                    .parse::<f64>()
+                    .unwrap(),
+            ))
+        } else if capture.name("negative").is_some() {
+            Ok(Token::Negative(
+                capture
+                    .name("negative")
+                    .unwrap()
+                    .as_str()
+                    .parse::<i64>()
+                    .unwrap(),
+            ))
+        } else if capture.name("nonnegative").is_some() {
+            Ok(Token::NonNegative(
+                capture
+                    .name("nonnegative")
+                    .unwrap()
+                    .as_str()
+                    .parse::<u64>()
+                    .unwrap(),
+            ))
         } else if capture.name("builtin").is_some() {
             Ok(Token::Builtin(
                 capture.name("builtin").unwrap().as_str()[1..].to_string(),
-            ))
-        } else if capture.name("number").is_some() {
-            Ok(Token::Number(
-                capture.name("number").unwrap().as_str().to_string(),
             ))
         } else if capture.name("semicolon").is_some() {
             Ok(Token::Semicolon)
