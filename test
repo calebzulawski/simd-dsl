@@ -1,7 +1,8 @@
 # Adds two numbers and takes the absolute value
 fn add_abs(a: i32, b: i32) -> f32
 {
-    let sum = %add(a, b); # an inline comment
+    # let sum = %add(a, b); # auto type
+    let mut sum: i32 = %add(a, b); #non auto type
     {
         sum = increase(sum, 1);
     }
