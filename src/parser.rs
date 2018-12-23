@@ -1,3 +1,4 @@
+use crate::lexer::Literal;
 use crate::lexer::Primitive;
 use crate::lexer::Token;
 
@@ -18,7 +19,7 @@ pub enum Statement {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Expression {
-    Literal(LiteralExpression),
+    Literal(Literal),
     Variable(String),
     Call(CallExpression),
 }
@@ -56,13 +57,6 @@ pub struct AssignmentStatement {
 }
 
 // Expressions
-
-#[derive(PartialEq, Clone, Debug)]
-pub enum LiteralExpression {
-    NonNegative(u64),
-    Negative(i64),
-    Float(f64),
-}
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct CallExpression {
@@ -400,16 +394,16 @@ fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     Ok(
         check_token!([Token::Identifier(_), parse_identifier_expression(tokens);
                       Token::Builtin(_), parse_builtin(tokens);
-                      Token::Negative(val), pop_and_pass(tokens, Expression::Literal(LiteralExpression::Negative(*val)));
-                      Token::NonNegative(val), pop_and_pass(tokens, Expression::Literal(LiteralExpression::NonNegative(*val)));
-                      Token::Float(val), pop_and_pass(tokens, Expression::Literal(LiteralExpression::Float(*val)))] <= tokens,
+                      Token::Literal(_), parse_literal(tokens)] <= tokens,
                       "expected expression"),
     )
 }
 
-fn pop_and_pass<T>(tokens: &mut Vec<Token>, val: T) -> Result<T, String> {
-    tokens.pop();
-    Ok(val)
+fn parse_literal(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+    Ok(eat_token!(
+        [Token::Literal(literal), Ok(Expression::Literal(literal))] <= tokens,
+        "expected literal"
+    ))
 }
 
 fn parse_call_args(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {

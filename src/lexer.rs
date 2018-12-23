@@ -13,6 +13,20 @@ pub enum Primitive {
 }
 
 #[derive(PartialEq, Clone, Debug)]
+pub enum Literal {
+    Unsigned8(u8),
+    Unsigned16(u16),
+    Unsigned32(u32),
+    Unsigned64(u64),
+    Signed8(i8),
+    Signed16(i16),
+    Signed32(i32),
+    Signed64(i64),
+    Float32(f32),
+    Float64(f64),
+}
+
+#[derive(PartialEq, Clone, Debug)]
 pub enum Token {
     Fn,
     Let,
@@ -31,12 +45,10 @@ pub enum Token {
     Identifier(String),
     Builtin(String),
     Primitive(Primitive),
-    NonNegative(u64),
-    Negative(i64),
-    Float(f64),
+    Literal(Literal),
 }
 
-pub fn tokenize(input: &str) -> Vec<Token> {
+pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     // strip comments
     let comment_re = regex::Regex::new(r"(?m)#.*\n").unwrap();
     let input_stripped = comment_re.replace_all(input, "\n");
@@ -45,10 +57,17 @@ pub fn tokenize(input: &str) -> Vec<Token> {
 
     let token_re = regex::Regex::new(concat!(
         r"(?P<identifier>\p{Alphabetic}\w*)|",
-        r"(?P<builtin>%\p{Alphabetic}\w*)|",
-        r"(?P<float>\-?\d+\.\d*)|",
-        r"(?P<negative>\-\d+)|",
-        r"(?P<nonnegative>\d+)|",
+        r"%(?P<builtin>\p{Alphabetic}\w*)|",
+        r"(?P<litf64>\-?\d+[\.\d*]?)f64|",
+        r"(?P<litf32>\-?\d+[\.\d*]?)f32|",
+        r"(?P<litu8>\d+)u8|",
+        r"(?P<litu16>\d+)u16|",
+        r"(?P<litu32>\d+)u32|",
+        r"(?P<litu64>\d+)u64|",
+        r"(?P<liti8>\-?\d+)i8|",
+        r"(?P<liti16>\-?\d+)i16|",
+        r"(?P<liti32>\-?\d+)i32|",
+        r"(?P<liti64>\-?\d+)i64|",
         r"(?P<semicolon>;)|",
         r"(?P<lparen>\()|",
         r"(?P<rparen>\))|",
@@ -61,6 +80,14 @@ pub fn tokenize(input: &str) -> Vec<Token> {
     ))
     .unwrap();
 
+    // Check for bad tokens
+    for extraneous in token_re.split(&input_stripped) {
+        if let Some(bad_token) = extraneous.split_whitespace().nth(0) {
+            return Err(format!("Bad token: {}", bad_token));
+        }
+    }
+
+    // Parse tokens
     for capture in token_re.captures_iter(&input_stripped) {
         let token = if capture.name("identifier").is_some() {
             let identifier = match capture.name("identifier").unwrap().as_str() {
@@ -82,36 +109,99 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 identifier => Token::Identifier(identifier.to_string()),
             };
             Ok(identifier)
-        } else if capture.name("float").is_some() {
-            Ok(Token::Float(
+        } else if capture.name("litu8").is_some() {
+            Ok(Token::Literal(Literal::Unsigned8(
                 capture
-                    .name("float")
+                    .name("litu8")
                     .unwrap()
                     .as_str()
-                    .parse::<f64>()
+                    .parse::<u8>()
                     .unwrap(),
-            ))
-        } else if capture.name("negative").is_some() {
-            Ok(Token::Negative(
+            )))
+        } else if capture.name("litu16").is_some() {
+            Ok(Token::Literal(Literal::Unsigned16(
                 capture
-                    .name("negative")
+                    .name("litu16")
                     .unwrap()
                     .as_str()
-                    .parse::<i64>()
+                    .parse::<u16>()
                     .unwrap(),
-            ))
-        } else if capture.name("nonnegative").is_some() {
-            Ok(Token::NonNegative(
+            )))
+        } else if capture.name("litu32").is_some() {
+            Ok(Token::Literal(Literal::Unsigned32(
                 capture
-                    .name("nonnegative")
+                    .name("litu32")
+                    .unwrap()
+                    .as_str()
+                    .parse::<u32>()
+                    .unwrap(),
+            )))
+        } else if capture.name("litu64").is_some() {
+            Ok(Token::Literal(Literal::Unsigned64(
+                capture
+                    .name("litu64")
                     .unwrap()
                     .as_str()
                     .parse::<u64>()
                     .unwrap(),
-            ))
+            )))
+        } else if capture.name("liti8").is_some() {
+            Ok(Token::Literal(Literal::Signed8(
+                capture
+                    .name("liti8")
+                    .unwrap()
+                    .as_str()
+                    .parse::<i8>()
+                    .unwrap(),
+            )))
+        } else if capture.name("liti16").is_some() {
+            Ok(Token::Literal(Literal::Signed16(
+                capture
+                    .name("liti16")
+                    .unwrap()
+                    .as_str()
+                    .parse::<i16>()
+                    .unwrap(),
+            )))
+        } else if capture.name("liti32").is_some() {
+            Ok(Token::Literal(Literal::Signed32(
+                capture
+                    .name("liti32")
+                    .unwrap()
+                    .as_str()
+                    .parse::<i32>()
+                    .unwrap(),
+            )))
+        } else if capture.name("liti64").is_some() {
+            Ok(Token::Literal(Literal::Signed64(
+                capture
+                    .name("liti64")
+                    .unwrap()
+                    .as_str()
+                    .parse::<i64>()
+                    .unwrap(),
+            )))
+        } else if capture.name("litf32").is_some() {
+            Ok(Token::Literal(Literal::Float32(
+                capture
+                    .name("litf32")
+                    .unwrap()
+                    .as_str()
+                    .parse::<f32>()
+                    .unwrap(),
+            )))
+        } else if capture.name("litf64").is_some() {
+            Ok(Token::Literal(Literal::Float64(
+                capture
+                    .name("litf64")
+                    .unwrap()
+                    .as_str()
+                    .parse::<f64>()
+                    .unwrap(),
+            )))
         } else if capture.name("builtin").is_some() {
             Ok(Token::Builtin(
-                capture.name("builtin").unwrap().as_str()[1..].to_string(),
+                capture.name("builtin").unwrap().as_str().to_string(),
             ))
         } else if capture.name("semicolon").is_some() {
             Ok(Token::Semicolon)
@@ -132,11 +222,11 @@ pub fn tokenize(input: &str) -> Vec<Token> {
         } else if capture.name("arrow").is_some() {
             Ok(Token::Arrow)
         } else {
-            Err("Unrecognized token")
+            Err("Unhandled token")
         };
 
         tokens.push(token.unwrap());
     }
 
-    tokens
+    Ok(tokens)
 }

@@ -4,14 +4,14 @@ fn add_abs(a: i32, b: i32) -> f32
     # let sum = %add(a, b); # auto type
     let mut sum: i32 = %add(a, b); #non auto type
     {
-        sum = increase(sum, 1);
+        sum = increase(sum, 1u32);
     }
     return %abs(sum);
 }
 
-fn increase(x: u8, i: scalar u8) -> u8
+fn increase(x: u32, i: scalar u32) -> u32
 {
-    let mut amount: scalar u8 = 0;
+    let mut amount: scalar u32 = 0u32;
     amount = %add(amount, i);
     return %add(x, amount);
 }
