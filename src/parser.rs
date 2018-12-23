@@ -106,18 +106,21 @@ impl ScopeContents {
         self.functions.insert(signature.name.clone(), signature);
     }
 
-    fn get_function_return(&self, name: &String, args: Vec<Type>) -> Result<Primitive, String> {
+    fn get_function_return_type(&self, name: &String, args: Vec<Type>) -> Result<Type, String> {
         match self.functions.get(name) {
             Some(signature) => {
                 if signature.args.len() != args.len() {
                     return Err("wrong number of arguments".to_string());
                 }
-                for (arg, arg_type) in signature.args.iter().zip(args.iter()) {
-                    if &arg.type_name != arg_type {
+                for (func_arg, arg) in signature.args.iter().zip(args.iter()) {
+                    if &func_arg.type_name != arg {
                         return Err("mismatched type".to_string());
                     }
                 }
-                Ok(signature.returns.clone())
+                Ok(Type {
+                    type_name: signature.returns.clone(),
+                    scalar: false,
+                })
             }
             None => Err(format!("no function '{}'", name)),
         }
@@ -207,6 +210,37 @@ macro_rules! eat_optional_token (
     )
 );
 
+fn get_expression_type(expression: &Expression, contents: &ScopeContents) -> Result<Type, String> {
+    Ok(match expression {
+        Expression::Literal(literal) => {
+            let primitive = match literal {
+                Literal::Unsigned8(_) => Primitive::Unsigned8,
+                Literal::Unsigned16(_) => Primitive::Unsigned16,
+                Literal::Unsigned32(_) => Primitive::Unsigned32,
+                Literal::Unsigned64(_) => Primitive::Unsigned64,
+                Literal::Signed8(_) => Primitive::Signed8,
+                Literal::Signed16(_) => Primitive::Signed16,
+                Literal::Signed32(_) => Primitive::Signed32,
+                Literal::Signed64(_) => Primitive::Signed64,
+                Literal::Float32(_) => Primitive::Signed32,
+                Literal::Float64(_) => Primitive::Signed64,
+            };
+            Type {
+                scalar: true,
+                type_name: primitive,
+            }
+        }
+        Expression::Variable(variable) => contents.get_variable(variable)?.type_name,
+        Expression::Call(call) => {
+            let mut args = Vec::new();
+            for arg in &call.args {
+                args.push(get_expression_type(&arg, contents)?);
+            }
+            contents.get_function_return_type(&call.name, args)?
+        }
+    })
+}
+
 // Parse functions
 
 pub fn parse(tokens: &[Token]) -> Result<Vec<TopNode>, String> {
@@ -234,7 +268,12 @@ fn parse_function(
     mut contents: &mut ScopeContents,
 ) -> Result<TopNode, String> {
     let signature = parse_signature(&mut tokens)?;
-    let body = parse_scope(&mut tokens, &mut contents)?;
+    contents.push_scope();
+    for arg in &signature.args {
+        contents.add_variable(arg.clone());
+    }
+    let body = parse_block(&mut tokens, &mut contents)?;
+    contents.pop_scope();
     contents.add_function(signature.clone()); // add function after scope to prevent recursive functions
     Ok(TopNode::Function(Function {
         signature: signature,
@@ -288,7 +327,17 @@ fn parse_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
     })
 }
 
-fn parse_scope(
+fn parse_scoped_block(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<ScopeStatement, String> {
+    contents.push_scope();
+    let block = parse_block(tokens, contents);
+    contents.pop_scope();
+    block
+}
+
+fn parse_block(
     tokens: &mut Vec<Token>,
     contents: &mut ScopeContents,
 ) -> Result<ScopeStatement, String> {
@@ -296,12 +345,10 @@ fn parse_scope(
 
     eat_token!([Token::LeftBrace, Ok(())] <= tokens, "expected '{'");
 
-    contents.push_scope();
-
     loop {
         let statement = check_token!(
             [Token::RightBrace, break;
-             Token::LeftBrace, Ok(Statement::Scope(parse_scope(tokens, contents)?));
+             Token::LeftBrace, Ok(Statement::Scope(parse_scoped_block(tokens, contents)?));
              Token::Let, parse_let(tokens, contents);
              Token::Identifier(_), parse_assignment(tokens, contents);
              Token::Return, parse_return(tokens, contents)] <= tokens, "expected statement");
@@ -375,6 +422,10 @@ fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<St
         "expected '=' after variable declaration"
     );
     let initializer = parse_expression(tokens)?;
+
+    if type_name != get_expression_type(&initializer, contents)? {
+        return Err("incorrect initializer type".to_string());
+    }
 
     let variable = Variable {
         mutable: mutable,
