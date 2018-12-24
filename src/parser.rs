@@ -1,3 +1,4 @@
+use crate::lexer::Builtin;
 use crate::lexer::Literal;
 use crate::lexer::Primitive;
 use crate::lexer::Token;
@@ -22,6 +23,7 @@ pub enum Expression {
     Literal(Literal),
     Variable(String),
     Call(CallExpression),
+    BuiltinCall(BuiltinCallExpression),
 }
 
 // Top level AST nodes
@@ -60,8 +62,13 @@ pub struct AssignmentStatement {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct CallExpression {
-    pub builtin: bool,
     pub name: String,
+    pub args: Vec<Expression>,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct BuiltinCallExpression {
+    pub builtin: Builtin,
     pub args: Vec<Expression>,
 }
 
@@ -154,6 +161,27 @@ impl ScopeContents {
     }
 }
 
+// Validates builtin functions
+
+fn get_builtin_return_type(builtin: &Builtin, args: Vec<Type>) -> Result<Type, String> {
+    match builtin {
+        Builtin::Add => get_builtin_return_type_binary(args),
+        Builtin::Sub => get_builtin_return_type_binary(args),
+        Builtin::Mul => get_builtin_return_type_binary(args),
+        Builtin::Div => get_builtin_return_type_binary(args),
+    }
+}
+
+fn get_builtin_return_type_binary(args: Vec<Type>) -> Result<Type, String> {
+    if args.len() != 2 {
+        Err(format!("Got {} arguments, expected 2", args.len()))
+    } else if args[0] != args[1] {
+        Err("incorrect arguments".to_string())
+    } else {
+        Ok(args[0].clone())
+    }
+}
+
 // Helpers for checking the contents of tokens
 
 macro_rules! check_token (
@@ -237,6 +265,13 @@ fn get_expression_type(expression: &Expression, contents: &ScopeContents) -> Res
                 args.push(get_expression_type(&arg, contents)?);
             }
             contents.get_function_return_type(&call.name, args)?
+        }
+        Expression::BuiltinCall(call) => {
+            let mut args = Vec::new();
+            for arg in &call.args {
+                args.push(get_expression_type(&arg, contents)?);
+            }
+            get_builtin_return_type(&call.builtin, args)?
         }
     })
 }
@@ -367,8 +402,6 @@ fn parse_block(
 
     eat_token!([Token::RightBrace, Ok(())] <= tokens, "expected '}'");
 
-    contents.pop_scope();
-
     Ok(ScopeStatement {
         statements: statements,
     })
@@ -476,12 +509,11 @@ fn parse_call_args(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {
 fn parse_builtin(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     let builtin = eat_token!(
         [Token::Builtin(builtin), Ok(builtin)] <= tokens,
-        "expected builtin name"
+        "expected builtin"
     );
     let args = parse_call_args(tokens)?;
-    Ok(Expression::Call(CallExpression {
-        builtin: true,
-        name: builtin,
+    Ok(Expression::BuiltinCall(BuiltinCallExpression {
+        builtin: builtin,
         args: args,
     }))
 }
@@ -495,7 +527,6 @@ fn parse_identifier_expression(tokens: &mut Vec<Token>) -> Result<Expression, St
         Some(Token::LeftParen) => {
             let args = parse_call_args(tokens)?;
             Ok(Expression::Call(CallExpression {
-                builtin: false,
                 name: identifier,
                 args: args,
             }))

@@ -27,6 +27,24 @@ pub enum Literal {
 }
 
 #[derive(PartialEq, Clone, Debug)]
+pub enum Builtin {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+fn parse_builtin(name: &str) -> Result<Builtin, String> {
+    match name {
+        "add" => Ok(Builtin::Add),
+        "sub" => Ok(Builtin::Sub),
+        "mul" => Ok(Builtin::Mul),
+        "div" => Ok(Builtin::Div),
+        other => Err(format!("unrecognized builtin '{}'", other)),
+    }
+}
+
+#[derive(PartialEq, Clone, Debug)]
 pub enum Token {
     Fn,
     Let,
@@ -43,7 +61,7 @@ pub enum Token {
     Equals,
     Arrow,
     Identifier(String),
-    Builtin(String),
+    Builtin(Builtin),
     Primitive(Primitive),
     Literal(Literal),
 }
@@ -201,7 +219,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             )))
         } else if capture.name("builtin").is_some() {
             Ok(Token::Builtin(
-                capture.name("builtin").unwrap().as_str().to_string(),
+                parse_builtin(capture.name("builtin").unwrap().as_str()).unwrap(),
             ))
         } else if capture.name("semicolon").is_some() {
             Ok(Token::Semicolon)

@@ -1,17 +1,17 @@
-# Adds two numbers and takes the absolute value
-fn add_abs(a: i32, b: i32) -> f32
+# Adds two numbers inefficiently
+fn add(a: i32, b: i32) -> i32
 {
     # let sum = %add(a, b); # auto type
     let mut sum: i32 = %add(a, b); #non auto type
     {
-        sum = increase(sum, 1u32);
+        sum = increase(sum, 1i32);
     }
-    return %abs(sum);
+    return %sub(sum, 1i32);
 }
 
-fn increase(x: u32, i: scalar u32) -> u32
+fn increase(x: i32, i: scalar i32) -> i32
 {
-    let mut amount: scalar u32 = 0u32;
+    let mut amount: scalar i32 = 0i32;
     amount = %add(amount, i);
     return %add(x, amount);
 }
