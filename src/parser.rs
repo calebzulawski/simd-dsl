@@ -448,7 +448,7 @@ fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<St
         "expected variable name"
     );
 
-    let type_name = parse_type(tokens)?.ok_or("auto type not yet supported")?;
+    let optional_type_name = parse_type(tokens)?;
 
     eat_token!(
         [Token::Equals, Ok(())] <= tokens,
@@ -456,9 +456,17 @@ fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<St
     );
     let initializer = parse_expression(tokens)?;
 
-    if type_name != get_expression_type(&initializer, contents)? {
-        return Err("incorrect initializer type".to_string());
-    }
+    let expression_type = get_expression_type(&initializer, contents)?;
+    let type_name = match optional_type_name {
+        Some(provided_type) => {
+            if provided_type != expression_type {
+                Err("incorrect initializer type".to_string())
+            } else {
+                Ok(provided_type)
+            }
+        }
+        None => Ok(expression_type),
+    }?;
 
     let variable = Variable {
         mutable: mutable,
@@ -547,6 +555,14 @@ fn parse_assignment(
     let expression = parse_expression(tokens)?;
 
     let variable = contents.get_variable(&identifier)?;
+
+    if !variable.mutable {
+        return Err("cannot assign to immutable variable".to_string());
+    }
+
+    if variable.type_name != get_expression_type(&expression, contents)? {
+        return Err("assignment type mismatch".to_string());
+    }
 
     Ok(Statement::Assignment(AssignmentStatement {
         name: identifier,

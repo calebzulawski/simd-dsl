@@ -1,17 +1,17 @@
 # Adds two numbers inefficiently
-fn add(a: i32, b: i32) -> i32
+fn add1(x: i32, i: scalar i32) -> i32
 {
-    # let sum = %add(a, b); # auto type
-    let mut sum: i32 = %add(a, b); #non auto type
-    {
-        sum = increase(sum, 1i32);
-    }
-    return %sub(sum, 1i32);
-}
-
-fn increase(x: i32, i: scalar i32) -> i32
-{
-    let mut amount: scalar i32 = 0i32;
+    let mut amount = 0i32;
     amount = %add(amount, i);
     return %add(x, amount);
+}
+
+# Adds two numbers inefficiently
+fn add2(a: i32, b: i32) -> i32
+{
+    let mut sum = %add(a, b);
+    {
+        sum = add1(sum, 1i32);
+    }
+    return %sub(sum, 1i32);
 }
