@@ -1,10 +1,16 @@
 program              : [definition]*;
 definition           : Fn prototype scope;
-prototype            : Identifier LeftParen [Mutable ? Identifier Colon Scalar ? Primitive Comma ?]* RightParen Arrow Primitive;
+prototype            : Identifier LeftParen [Mutable ? Identifier Colon Scalar ? Primitive Comma ?]* RightParen Arrow [type | type_tuple];
+type                 : Scalar ? Primitive;
+type_tuple           : LeftParen type [Comma type]* RightParen;
 scope                : LeftBrace [statement | scope]* RightBrace;
 statement            : [let_statement | return_statement | assignment_statement] Semicolon;
-let_statement        : Let Mutable ? Identifier [Colon Scalar ? Primitive] ? Equals expression;
+let_statement        : Let [variable_definition | tuple_definition] Equals expression;
+variable_definition  : Mutable ? Identifier [Colon Scalar ? Primitive] ?;
+tuple_definition     : LeftParen variable_definition [Comma variable_definition]* RightParen
 return_statement     : Return expression;
 assignment_statement : Identifier Equals expression;
-expression           : [Identifier | Number | call_expr];
+expression           : [Identifier | Number | call_expr | tuple_expr | tuple_access];
 call_expr            : [Identifier | Builtin] LeftParen [expression Comma ?]* RightParen;
+tuple_expr           : LeftParen expression [Comma expression]* RightParen
+tuple_access         : Identifier Dot Index;

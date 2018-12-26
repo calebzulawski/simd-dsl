@@ -26,6 +26,12 @@ pub enum Expression {
     BuiltinCall(BuiltinCallExpression),
 }
 
+#[derive(PartialEq, Clone, Debug)]
+pub enum Type {
+    Single(SingleType),
+    Tuple(Vec<Type>),
+}
+
 // Top level AST nodes
 
 #[derive(PartialEq, Clone, Debug)]
@@ -75,7 +81,7 @@ pub struct BuiltinCallExpression {
 // Contents
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct Type {
+pub struct SingleType {
     pub scalar: bool,
     pub type_name: Primitive,
 }
@@ -91,7 +97,7 @@ pub struct Variable {
 pub struct Signature {
     pub name: String,
     pub args: Vec<Variable>,
-    pub returns: Primitive,
+    pub returns: Type,
 }
 
 // Contains the variables and functions that are in scope
@@ -124,10 +130,7 @@ impl ScopeContents {
                         return Err("mismatched type".to_string());
                     }
                 }
-                Ok(Type {
-                    type_name: signature.returns.clone(),
-                    scalar: false,
-                })
+                Ok(signature.returns.clone())
             }
             None => Err(format!("no function '{}'", name)),
         }
@@ -175,10 +178,14 @@ fn get_builtin_return_type(builtin: &Builtin, args: Vec<Type>) -> Result<Type, S
 fn get_builtin_return_type_binary(args: Vec<Type>) -> Result<Type, String> {
     if args.len() != 2 {
         Err(format!("Got {} arguments, expected 2", args.len()))
-    } else if args[0] != args[1] {
-        Err("incorrect arguments".to_string())
+    } else if let (Type::Single(a), Type::Single(b)) = (&args[0], &args[1]) {
+        if a != b {
+            Err("incorrect arguments".to_string())
+        } else {
+            Ok(Type::Single(a.clone()))
+        }
     } else {
-        Ok(args[0].clone())
+        Err("tuple not expected".to_string())
     }
 }
 
@@ -253,10 +260,10 @@ fn get_expression_type(expression: &Expression, contents: &ScopeContents) -> Res
                 Literal::Float32(_) => Primitive::Signed32,
                 Literal::Float64(_) => Primitive::Signed64,
             };
-            Type {
+            Type::Single(SingleType {
                 scalar: true,
                 type_name: primitive,
-            }
+            })
         }
         Expression::Variable(variable) => contents.get_variable(variable)?.type_name,
         Expression::Call(call) => {
@@ -335,7 +342,8 @@ fn parse_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
             "expected function argument name"
         );
 
-        let type_name = parse_type(tokens)?.ok_or("expected type in function signature")?;
+        let type_name =
+            parse_variable_type(tokens)?.ok_or("expected type in function signature")?;
 
         args.push(Variable {
             mutable: mutable,
@@ -350,10 +358,7 @@ fn parse_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
 
     eat_token!([Token::Arrow, Ok(())] <= tokens, "expected '->'");
 
-    let returns = eat_token!(
-        [Token::Primitive(primitive), Ok(primitive)] <= tokens,
-        "expected type"
-    );
+    let returns = parse_type(tokens)?;
 
     Ok(Signature {
         name: name,
@@ -418,24 +423,38 @@ fn parse_return(
     }))
 }
 
-fn parse_type(tokens: &mut Vec<Token>) -> Result<Option<Type>, String> {
+fn parse_variable_type(tokens: &mut Vec<Token>) -> Result<Option<Type>, String> {
     match tokens.last() {
         Some(Token::Colon) => {
             tokens.pop();
-
-            let scalar = eat_optional_token!(Token::Scalar, tokens);
-
-            let type_name = eat_token!(
-                [Token::Primitive(primitive), Ok(primitive)] <= tokens,
-                "expected type after ':'"
-            );
-
-            Ok(Some(Type {
-                scalar: scalar,
-                type_name: type_name,
-            }))
+            Ok(Some(parse_type(tokens)?))
         }
         _ => Ok(None),
+    }
+}
+
+fn parse_type(tokens: &mut Vec<Token>) -> Result<Type, String> {
+    if eat_optional_token!(Token::LeftParen, tokens) {
+        let mut elements = Vec::new();
+        loop {
+            elements.push(parse_type(tokens)?);
+            eat_token!([Token::RightParen, break;
+                    Token::Comma, continue] <= tokens,
+                    "expected ',' or ')'");
+        }
+        Ok(Type::Tuple(elements))
+    } else {
+        let scalar = eat_optional_token!(Token::Scalar, tokens);
+
+        let type_name = eat_token!(
+            [Token::Primitive(primitive), Ok(primitive)] <= tokens,
+            "expected type after ':'"
+        );
+
+        Ok(Type::Single(SingleType {
+            scalar: scalar,
+            type_name: type_name,
+        }))
     }
 }
 
@@ -448,7 +467,7 @@ fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<St
         "expected variable name"
     );
 
-    let optional_type_name = parse_type(tokens)?;
+    let optional_type_name = parse_variable_type(tokens)?;
 
     eat_token!(
         [Token::Equals, Ok(())] <= tokens,
