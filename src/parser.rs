@@ -24,6 +24,7 @@ pub enum Expression {
     Variable(String),
     Call(CallExpression),
     BuiltinCall(BuiltinCallExpression),
+    Tuple(Vec<Expression>),
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -280,6 +281,13 @@ fn get_expression_type(expression: &Expression, contents: &ScopeContents) -> Res
             }
             get_builtin_return_type(&call.builtin, args)?
         }
+        Expression::Tuple(tuple) => {
+            let mut subtypes = Vec::new();
+            for subexpr in tuple {
+                subtypes.push(get_expression_type(subexpr, contents)?);
+            }
+            Type::Tuple(subtypes)
+        }
     })
 }
 
@@ -505,7 +513,8 @@ fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     Ok(
         check_token!([Token::Identifier(_), parse_identifier_expression(tokens);
                       Token::Builtin(_), parse_builtin(tokens);
-                      Token::Literal(_), parse_literal(tokens)] <= tokens,
+                      Token::Literal(_), parse_literal(tokens);
+                      Token::LeftParen, parse_tuple_expression(tokens)] <= tokens,
                       "expected expression"),
     )
 }
@@ -517,7 +526,7 @@ fn parse_literal(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     ))
 }
 
-fn parse_call_args(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {
+fn parse_expression_group(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {
     eat_token!([Token::LeftParen, Ok(())] <= tokens, "expected '('");
     let mut args = Vec::new();
     loop {
@@ -533,12 +542,16 @@ fn parse_call_args(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {
     Ok(args)
 }
 
+fn parse_tuple_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+    Ok(Expression::Tuple(parse_expression_group(tokens)?))
+}
+
 fn parse_builtin(tokens: &mut Vec<Token>) -> Result<Expression, String> {
     let builtin = eat_token!(
         [Token::Builtin(builtin), Ok(builtin)] <= tokens,
         "expected builtin"
     );
-    let args = parse_call_args(tokens)?;
+    let args = parse_expression_group(tokens)?;
     Ok(Expression::BuiltinCall(BuiltinCallExpression {
         builtin: builtin,
         args: args,
@@ -552,7 +565,7 @@ fn parse_identifier_expression(tokens: &mut Vec<Token>) -> Result<Expression, St
     );
     match tokens.last() {
         Some(Token::LeftParen) => {
-            let args = parse_call_args(tokens)?;
+            let args = parse_expression_group(tokens)?;
             Ok(Expression::Call(CallExpression {
                 name: identifier,
                 args: args,

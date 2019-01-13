@@ -15,3 +15,9 @@ fn add2(a: i32, b: i32) -> i32
     }
     return %sub(sum, 1i32);
 }
+
+# Tuple test
+fn tup(a: i32, b: i32) -> (i32, i32)
+{
+    return (a, b);
+}
