@@ -113,6 +113,7 @@ pub struct Signature {
 struct ScopeContents {
     pub functions: std::collections::HashMap<String, Signature>,
     pub variables: Vec<std::collections::HashMap<String, Variable>>,
+    pub current_function: Option<Signature>,
 }
 
 impl ScopeContents {
@@ -120,11 +121,30 @@ impl ScopeContents {
         ScopeContents {
             functions: std::collections::HashMap::new(),
             variables: Vec::new(),
+            current_function: None,
         }
     }
 
-    fn add_function(&mut self, signature: Signature) {
+    fn enter_function(&mut self, signature: Signature) {
+        self.current_function.replace(signature);
+        self.push_scope();
+    }
+
+    fn leave_function(&mut self) {
+        self.pop_scope();
+        let signature = self
+            .current_function
+            .take()
+            .expect("Compiler error: leave_function");
         self.functions.insert(signature.name.clone(), signature);
+    }
+
+    fn get_current_return_type(&self) -> Type {
+        self.current_function
+            .as_ref()
+            .expect("Compiler error: get_current_return_type")
+            .returns
+            .clone()
     }
 
     fn get_function_return_type(&self, name: &String, args: Vec<Type>) -> Result<Type, String> {
@@ -188,6 +208,8 @@ fn get_builtin_return_type_binary(args: Vec<Type>) -> Result<Type, String> {
         Err(format!("Got {} arguments, expected 2", args.len()))
     } else if let (Type::Single(a), Type::Single(b)) = (&args[0], &args[1]) {
         if a != b {
+            println!("{:#?}", a);
+            println!("{:#?}", b);
             Err("incorrect arguments".to_string())
         } else {
             Ok(Type::Single(a.clone()))
@@ -325,13 +347,12 @@ fn parse_function(
     mut contents: &mut ScopeContents,
 ) -> Result<TopNode, String> {
     let signature = parse_signature(&mut tokens)?;
-    contents.push_scope();
+    contents.enter_function(signature.clone());
     for arg in &signature.args {
         contents.add_variable(arg.clone());
     }
     let body = parse_block(&mut tokens, &mut contents)?;
-    contents.pop_scope();
-    contents.add_function(signature.clone()); // add function after scope to prevent recursive functions
+    contents.leave_function();
     Ok(TopNode::Function(Function {
         signature: signature,
         body: body,
@@ -433,9 +454,13 @@ fn parse_return(
 ) -> Result<Statement, String> {
     eat_token!([Token::Return, Ok(())] <= tokens, "expected 'return'");
     let expression = parse_expression(tokens)?;
-    Ok(Statement::Return(ReturnStatement {
-        expression: expression,
-    }))
+    if get_expression_type(&expression, contents)? != contents.get_current_return_type() {
+        Err("mismatched return type".to_string())
+    } else {
+        Ok(Statement::Return(ReturnStatement {
+            expression: expression,
+        }))
+    }
 }
 
 fn parse_variable_type(tokens: &mut Vec<Token>) -> Result<Option<Type>, String> {

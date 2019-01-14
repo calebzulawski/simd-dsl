@@ -1,19 +1,19 @@
 # Adds two numbers inefficiently
-fn add1(x: i32, i: scalar i32) -> i32
+fn pass(x: i32, i: scalar i32) -> i32
 {
     let mut amount = 0i32;
     amount = %add(amount, i);
-    return %add(x, amount);
+    return x;
 }
 
 # Adds two numbers inefficiently
 fn add2(a: i32, b: i32) -> i32
 {
-    let mut sum = %add(a, b);
+    let mut c = a;
     {
-        sum = add1(sum, 1i32);
+        c = pass(a, 1i32);
     }
-    return %sub(sum, 1i32);
+    return %add(c, b);
 }
 
 # Tuple test
