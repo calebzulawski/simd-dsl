@@ -55,7 +55,7 @@ pub struct ScopeStatement {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct LetStatement {
-    pub variable: Variable,
+    pub variables: Vec<Variable>,
     pub initializer: Expression,
 }
 
@@ -85,6 +85,13 @@ pub struct BuiltinCallExpression {
 pub struct SingleType {
     pub scalar: bool,
     pub type_name: Primitive,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct UnresolvedVariable {
+    pub mutable: bool,
+    pub name: String,
+    pub type_name: Option<Type>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -466,8 +473,7 @@ fn parse_type(tokens: &mut Vec<Token>) -> Result<Type, String> {
     }
 }
 
-fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<Statement, String> {
-    eat_token!([Token::Let, Ok(())] <= tokens, "expected 'let'");
+fn parse_variable_declaration(tokens: &mut Vec<Token>) -> Result<UnresolvedVariable, String> {
     let mutable = eat_optional_token!(Token::Mut, tokens);
 
     let name = eat_token!(
@@ -475,36 +481,86 @@ fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<St
         "expected variable name"
     );
 
-    let optional_type_name = parse_variable_type(tokens)?;
+    let type_name = parse_variable_type(tokens)?;
+
+    Ok(UnresolvedVariable {
+        mutable: mutable,
+        name: name,
+        type_name: type_name,
+    })
+}
+
+fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<Statement, String> {
+    eat_token!([Token::Let, Ok(())] <= tokens, "expected 'let'");
+
+    let mut maybe_typed_variables = Vec::new();
+    if eat_optional_token!(Token::LeftParen, tokens) {
+        loop {
+            maybe_typed_variables.push(parse_variable_declaration(tokens)?);
+            eat_token!([Token::RightParen, break;
+                    Token::Comma, continue] <= tokens,
+                    "expected ',' or ')'");
+        }
+    } else {
+        maybe_typed_variables.push(parse_variable_declaration(tokens)?);
+    }
 
     eat_token!(
         [Token::Equals, Ok(())] <= tokens,
         "expected '=' after variable declaration"
     );
     let initializer = parse_expression(tokens)?;
-
     let expression_type = get_expression_type(&initializer, contents)?;
-    let type_name = match optional_type_name {
-        Some(provided_type) => {
-            if provided_type != expression_type {
-                Err("incorrect initializer type".to_string())
+
+    let mut variables = Vec::new();
+    if maybe_typed_variables.len() == 1 {
+        variables.push(Variable {
+            mutable: maybe_typed_variables[0].mutable,
+            name: maybe_typed_variables[0].name.clone(),
+            type_name: match maybe_typed_variables[0].type_name.clone() {
+                Some(provided_type) => {
+                    if provided_type != expression_type {
+                        Err("incorrect initializer type".to_string())
+                    } else {
+                        Ok(provided_type)
+                    }
+                }
+                None => Ok(expression_type.clone()),
+            }?,
+        });
+    } else {
+        if let Type::Tuple(tuple) = expression_type {
+            if maybe_typed_variables.len() == tuple.len() {
+                for (t, var) in tuple.iter().zip(maybe_typed_variables.iter()) {
+                    variables.push(Variable {
+                        mutable: var.mutable,
+                        name: var.name.clone(),
+                        type_name: match var.type_name.clone() {
+                            Some(provided_type) => {
+                                if &provided_type != t {
+                                    Err("incorrect initializer type".to_string())
+                                } else {
+                                    Ok(provided_type)
+                                }
+                            }
+                            None => Ok(t.clone()),
+                        }?,
+                    });
+                }
             } else {
-                Ok(provided_type)
+                return Err("Tuple sizes do not match".to_string());
             }
-        }
-        None => Ok(expression_type),
-    }?;
+        } else {
+            return Err("Expected tuple type".to_string());
+        };
+    }
 
-    let variable = Variable {
-        mutable: mutable,
-        name: name,
-        type_name: type_name,
-    };
-
-    contents.add_variable(variable.clone());
+    for variable in &variables {
+        contents.add_variable(variable.clone());
+    }
 
     Ok(Statement::Let(LetStatement {
-        variable: variable,
+        variables: variables,
         initializer: initializer,
     }))
 }

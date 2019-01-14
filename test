@@ -19,5 +19,7 @@ fn add2(a: i32, b: i32) -> i32
 # Tuple test
 fn tup(a: i32, b: i32) -> (i32, i32)
 {
+    let mut c = (a, b);
+    let (mut d, e) = c;
     return (a, b);
 }
