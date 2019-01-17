@@ -1,25 +1,20 @@
-# Adds two numbers inefficiently
-fn pass(x: i32, i: scalar i32) -> i32
+fn double(v: i32) -> i32
 {
-    let mut amount = 0i32;
-    amount = %add(amount, i);
-    return x;
+    return %mul(v, 2i32);
 }
 
-# Adds two numbers inefficiently
-fn add2(a: i32, b: i32) -> i32
+fn halve(v: i32) -> i32
 {
-    let mut c = a;
+    return %div(v, 2i32);
+}
+
+# A pretty normal function to test
+pub fn test(m: i32, x: i32, b: i32) -> (i32, i32)
+{
+    let y1 = %add(%mul(m, x), b);
+    let y2 = y1;
     {
-        c = pass(a, 1i32);
-    }
-    return %add(c, b);
-}
-
-# Tuple test
-fn tup(a: i32, b: i32) -> (i32, i32)
-{
-    let mut c = (a, b);
-    let (mut d, e) = c;
-    return (a, b);
+        y2 = halve(y2);
+    }        
+    return (y1, double(y2));
 }

@@ -36,6 +36,7 @@ pub enum Type {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Function {
+    pub public: bool,
     pub signature: Signature,
     pub body: ScopeStatement,
 }
@@ -212,10 +213,13 @@ fn get_builtin_return_type_binary(args: Vec<Type>) -> Result<Type, String> {
     if args.len() != 2 {
         Err(format!("Got {} arguments, expected 2", args.len()))
     } else if let (Type::Single(a), Type::Single(b)) = (&args[0], &args[1]) {
-        if a != b {
+        if a.type_name != b.type_name {
             Err("incorrect arguments".to_string())
         } else {
-            Ok(Type::Single(a.clone()))
+            Ok(Type::Single(SingleType {
+                scalar: a.scalar && b.scalar,
+                type_name: a.type_name.clone(),
+            }))
         }
     } else {
         Err("tuple not expected".to_string())
@@ -291,6 +295,7 @@ pub fn parse(tokens: &[Token]) -> Result<Vec<TopNode>, String> {
     loop {
         let result = match remaining.last().clone() {
             Some(Token::Fn) => parse_function(&mut remaining, &mut contents),
+            Some(Token::Pub) => parse_function(&mut remaining, &mut contents),
             None => break,
             _ => Err("expected function definition".to_string()),
         }?;
@@ -304,6 +309,7 @@ fn parse_function(
     mut tokens: &mut Vec<Token>,
     mut contents: &mut ScopeContents,
 ) -> Result<TopNode, String> {
+    let public = eat_optional_token!(Token::Pub, tokens);
     let signature = parse_signature(&mut tokens)?;
     contents.enter_function(signature.clone());
     for arg in &signature.args {
@@ -312,6 +318,7 @@ fn parse_function(
     let body = parse_block(&mut tokens, &mut contents)?;
     contents.leave_function();
     Ok(TopNode::Function(Function {
+        public: public,
         signature: signature,
         body: body,
     }))

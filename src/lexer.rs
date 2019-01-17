@@ -47,6 +47,7 @@ fn parse_builtin(name: &str) -> Result<Builtin, String> {
 #[derive(PartialEq, Clone, Debug)]
 pub enum Token {
     Fn,
+    Pub,
     Let,
     Mut,
     Return,
@@ -110,6 +111,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
         let token = if capture.name("identifier").is_some() {
             let identifier = match capture.name("identifier").unwrap().as_str() {
                 "fn" => Token::Fn,
+                "pub" => Token::Pub,
                 "let" => Token::Let,
                 "mut" => Token::Mut,
                 "return" => Token::Return,
