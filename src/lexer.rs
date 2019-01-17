@@ -74,8 +74,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
 
     let token_re = regex::Regex::new(concat!(
-        r"(?P<identifier>\p{Alphabetic}\w*)|",
-        r"%(?P<builtin>\p{Alphabetic}\w*)|",
+        r"(?P<identifier>[a-zA-Z]\w*)|",
+        r"%(?P<builtin>[a-zA-Z]\w*)|",
         r"(?P<litf64>\-?\d+[\.\d*]?)f64|",
         r"(?P<litf32>\-?\d+[\.\d*]?)f32|",
         r"(?P<litu8>\d+)u8|",

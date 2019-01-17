@@ -13,7 +13,6 @@ pub enum TopNode {
 #[derive(PartialEq, Clone, Debug)]
 pub enum Statement {
     Return(ReturnStatement),
-    Let(LetStatement),
     Assignment(AssignmentStatement),
     Scope(ScopeStatement),
 }
@@ -24,7 +23,7 @@ pub enum Expression {
     Variable(String),
     Call(CallExpression),
     BuiltinCall(BuiltinCallExpression),
-    Tuple(Vec<Expression>),
+    Tuple(Vec<TypedExpression>),
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -45,7 +44,7 @@ pub struct Function {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct ReturnStatement {
-    pub expression: Expression,
+    pub expression: TypedExpression,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -54,29 +53,29 @@ pub struct ScopeStatement {
 }
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct LetStatement {
-    pub variables: Vec<Variable>,
-    pub initializer: Expression,
-}
-
-#[derive(PartialEq, Clone, Debug)]
 pub struct AssignmentStatement {
-    pub name: String,
-    pub expression: Expression,
+    pub variables: Vec<Variable>,
+    pub expression: TypedExpression,
+    pub initial: bool,
 }
 
 // Expressions
+#[derive(PartialEq, Clone, Debug)]
+pub struct TypedExpression {
+    pub expression: Expression,
+    pub type_name: Type,
+}
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct CallExpression {
     pub name: String,
-    pub args: Vec<Expression>,
+    pub args: Vec<TypedExpression>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct BuiltinCallExpression {
     pub builtin: Builtin,
-    pub args: Vec<Expression>,
+    pub args: Vec<TypedExpression>,
 }
 
 // Contents
@@ -174,11 +173,17 @@ impl ScopeContents {
             .expect("Compiler error: missing scope on pop!");
     }
 
-    fn add_variable(&mut self, variable: Variable) {
-        self.variables
+    fn add_variable(&mut self, variable: Variable) -> Result<(), String> {
+        let scope = &mut self
+            .variables
             .last_mut()
-            .expect("Compiler error: missing scope on add!")
-            .insert(variable.name.clone(), variable);
+            .expect("Compiler error: missing scope on add!");
+        if scope.contains_key(&variable.name) {
+            Err("variable already exists".to_string())
+        } else {
+            scope.insert(variable.name.clone(), variable);
+            Ok(())
+        }
     }
 
     fn get_variable(&self, name: &String) -> Result<Variable, String> {
@@ -208,8 +213,6 @@ fn get_builtin_return_type_binary(args: Vec<Type>) -> Result<Type, String> {
         Err(format!("Got {} arguments, expected 2", args.len()))
     } else if let (Type::Single(a), Type::Single(b)) = (&args[0], &args[1]) {
         if a != b {
-            println!("{:#?}", a);
-            println!("{:#?}", b);
             Err("incorrect arguments".to_string())
         } else {
             Ok(Type::Single(a.clone()))
@@ -275,51 +278,6 @@ macro_rules! eat_optional_token (
     )
 );
 
-fn get_expression_type(expression: &Expression, contents: &ScopeContents) -> Result<Type, String> {
-    Ok(match expression {
-        Expression::Literal(literal) => {
-            let primitive = match literal {
-                Literal::Unsigned8(_) => Primitive::Unsigned8,
-                Literal::Unsigned16(_) => Primitive::Unsigned16,
-                Literal::Unsigned32(_) => Primitive::Unsigned32,
-                Literal::Unsigned64(_) => Primitive::Unsigned64,
-                Literal::Signed8(_) => Primitive::Signed8,
-                Literal::Signed16(_) => Primitive::Signed16,
-                Literal::Signed32(_) => Primitive::Signed32,
-                Literal::Signed64(_) => Primitive::Signed64,
-                Literal::Float32(_) => Primitive::Signed32,
-                Literal::Float64(_) => Primitive::Signed64,
-            };
-            Type::Single(SingleType {
-                scalar: true,
-                type_name: primitive,
-            })
-        }
-        Expression::Variable(variable) => contents.get_variable(variable)?.type_name,
-        Expression::Call(call) => {
-            let mut args = Vec::new();
-            for arg in &call.args {
-                args.push(get_expression_type(&arg, contents)?);
-            }
-            contents.get_function_return_type(&call.name, args)?
-        }
-        Expression::BuiltinCall(call) => {
-            let mut args = Vec::new();
-            for arg in &call.args {
-                args.push(get_expression_type(&arg, contents)?);
-            }
-            get_builtin_return_type(&call.builtin, args)?
-        }
-        Expression::Tuple(tuple) => {
-            let mut subtypes = Vec::new();
-            for subexpr in tuple {
-                subtypes.push(get_expression_type(subexpr, contents)?);
-            }
-            Type::Tuple(subtypes)
-        }
-    })
-}
-
 // Parse functions
 
 pub fn parse(tokens: &[Token]) -> Result<Vec<TopNode>, String> {
@@ -349,7 +307,7 @@ fn parse_function(
     let signature = parse_signature(&mut tokens)?;
     contents.enter_function(signature.clone());
     for arg in &signature.args {
-        contents.add_variable(arg.clone());
+        contents.add_variable(arg.clone())?;
     }
     let body = parse_block(&mut tokens, &mut contents)?;
     contents.leave_function();
@@ -425,8 +383,9 @@ fn parse_block(
         let statement = check_token!(
             [Token::RightBrace, break;
              Token::LeftBrace, Ok(Statement::Scope(parse_scoped_block(tokens, contents)?));
-             Token::Let, parse_let(tokens, contents);
+             Token::Let, parse_assignment(tokens, contents);
              Token::Identifier(_), parse_assignment(tokens, contents);
+             Token::LeftParen, parse_assignment(tokens, contents);
              Token::Return, parse_return(tokens, contents)] <= tokens, "expected statement");
 
         // Eat semicolon on non-scope statements
@@ -453,8 +412,8 @@ fn parse_return(
     contents: &mut ScopeContents,
 ) -> Result<Statement, String> {
     eat_token!([Token::Return, Ok(())] <= tokens, "expected 'return'");
-    let expression = parse_expression(tokens)?;
-    if get_expression_type(&expression, contents)? != contents.get_current_return_type() {
+    let expression = parse_expression(tokens, contents)?;
+    if expression.type_name != contents.get_current_return_type() {
         Err("mismatched return type".to_string())
     } else {
         Ok(Statement::Return(ReturnStatement {
@@ -515,28 +474,59 @@ fn parse_variable_declaration(tokens: &mut Vec<Token>) -> Result<UnresolvedVaria
     })
 }
 
-fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<Statement, String> {
-    eat_token!([Token::Let, Ok(())] <= tokens, "expected 'let'");
+fn parse_variable_assignment(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<UnresolvedVariable, String> {
+    let variable_name = eat_token!(
+        [Token::Identifier(identifier), Ok(identifier)] <= tokens,
+        "expected identifier"
+    );
+    let variable = contents.get_variable(&variable_name)?;
+    Ok(UnresolvedVariable {
+        name: variable.name,
+        mutable: variable.mutable,
+        type_name: Some(variable.type_name),
+    })
+}
 
+// This handles both let and assignments
+fn parse_assignment(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<Statement, String> {
+    let initial = eat_optional_token!(Token::Let, tokens); // check if this is a let statement
+
+    // If a let statement, parse variables with optional type declarations
+    // If an assignment, just parse the variable names and check if they exist
     let mut maybe_typed_variables = Vec::new();
     if eat_optional_token!(Token::LeftParen, tokens) {
         loop {
-            maybe_typed_variables.push(parse_variable_declaration(tokens)?);
+            maybe_typed_variables.push(if initial {
+                parse_variable_declaration(tokens)?
+            } else {
+                parse_variable_assignment(tokens, contents)?
+            });
             eat_token!([Token::RightParen, break;
                     Token::Comma, continue] <= tokens,
                     "expected ',' or ')'");
         }
     } else {
-        maybe_typed_variables.push(parse_variable_declaration(tokens)?);
+        maybe_typed_variables.push(if initial {
+            parse_variable_declaration(tokens)?
+        } else {
+            parse_variable_assignment(tokens, contents)?
+        });
     }
 
+    // parse the assignment expression
     eat_token!(
         [Token::Equals, Ok(())] <= tokens,
-        "expected '=' after variable declaration"
+        "expected '=' after variable declaration or assignment"
     );
-    let initializer = parse_expression(tokens)?;
-    let expression_type = get_expression_type(&initializer, contents)?;
+    let expression = parse_expression(tokens, contents)?;
 
+    // check that the variable types match the expression, handling auto type deduction
     let mut variables = Vec::new();
     if maybe_typed_variables.len() == 1 {
         variables.push(Variable {
@@ -544,17 +534,17 @@ fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<St
             name: maybe_typed_variables[0].name.clone(),
             type_name: match maybe_typed_variables[0].type_name.clone() {
                 Some(provided_type) => {
-                    if provided_type != expression_type {
+                    if provided_type != expression.type_name {
                         Err("incorrect initializer type".to_string())
                     } else {
                         Ok(provided_type)
                     }
                 }
-                None => Ok(expression_type.clone()),
+                None => Ok(expression.type_name.clone()),
             }?,
         });
     } else {
-        if let Type::Tuple(tuple) = expression_type {
+        if let Type::Tuple(tuple) = expression.type_name.clone() {
             if maybe_typed_variables.len() == tuple.len() {
                 for (t, var) in tuple.iter().zip(maybe_typed_variables.iter()) {
                     variables.push(Variable {
@@ -580,105 +570,135 @@ fn parse_let(tokens: &mut Vec<Token>, contents: &mut ScopeContents) -> Result<St
         };
     }
 
-    for variable in &variables {
-        contents.add_variable(variable.clone());
+    // add the variables to the scope on a let statement
+    if initial {
+        for variable in &variables {
+            contents.add_variable(variable.clone())?;
+        }
     }
 
-    Ok(Statement::Let(LetStatement {
+    Ok(Statement::Assignment(AssignmentStatement {
         variables: variables,
-        initializer: initializer,
+        expression: expression,
+        initial: initial,
     }))
 }
 
-fn parse_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+fn parse_expression(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<TypedExpression, String> {
     Ok(
-        check_token!([Token::Identifier(_), parse_identifier_expression(tokens);
-                      Token::Builtin(_), parse_builtin(tokens);
+        check_token!([Token::Identifier(_), parse_identifier_expression(tokens, contents);
+                      Token::Builtin(_), parse_builtin(tokens, contents);
                       Token::Literal(_), parse_literal(tokens);
-                      Token::LeftParen, parse_tuple_expression(tokens)] <= tokens,
+                      Token::LeftParen, parse_tuple_expression(tokens, contents)] <= tokens,
                       "expected expression"),
     )
 }
 
-fn parse_literal(tokens: &mut Vec<Token>) -> Result<Expression, String> {
-    Ok(eat_token!(
-        [Token::Literal(literal), Ok(Expression::Literal(literal))] <= tokens,
-        "expected literal"
-    ))
-}
-
-fn parse_expression_group(tokens: &mut Vec<Token>) -> Result<Vec<Expression>, String> {
+fn parse_expression_group(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<(Vec<TypedExpression>, Vec<Type>), String> {
     eat_token!([Token::LeftParen, Ok(())] <= tokens, "expected '('");
     let mut args = Vec::new();
     loop {
         if eat_optional_token!(Token::RightParen, tokens) {
             break;
         }
-        let arg = parse_expression(tokens)?;
+        let arg = parse_expression(tokens, contents)?;
         args.push(arg);
         eat_token!([Token::RightParen, break;
                     Token::Comma, continue] <= tokens,
                     "expected ',' or ')'");
     }
-    Ok(args)
+    let types = args.iter().map(|x| x.type_name.clone()).collect();
+    Ok((args, types))
 }
 
-fn parse_tuple_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
-    Ok(Expression::Tuple(parse_expression_group(tokens)?))
+fn parse_tuple_expression(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<TypedExpression, String> {
+    let (expressions, types) = parse_expression_group(tokens, contents)?;
+    Ok(TypedExpression {
+        expression: Expression::Tuple(expressions),
+        type_name: Type::Tuple(types),
+    })
 }
 
-fn parse_builtin(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+fn parse_literal(tokens: &mut Vec<Token>) -> Result<TypedExpression, String> {
+    let literal = eat_token!(
+        [Token::Literal(literal), Ok(literal)] <= tokens,
+        "expected literal"
+    );
+    let type_name = match literal {
+        Literal::Unsigned8(_) => Primitive::Unsigned8,
+        Literal::Unsigned16(_) => Primitive::Unsigned16,
+        Literal::Unsigned32(_) => Primitive::Unsigned32,
+        Literal::Unsigned64(_) => Primitive::Unsigned64,
+        Literal::Signed8(_) => Primitive::Signed8,
+        Literal::Signed16(_) => Primitive::Signed16,
+        Literal::Signed32(_) => Primitive::Signed32,
+        Literal::Signed64(_) => Primitive::Signed64,
+        Literal::Float32(_) => Primitive::Signed32,
+        Literal::Float64(_) => Primitive::Signed64,
+    };
+    Ok(TypedExpression {
+        expression: Expression::Literal(literal),
+        type_name: Type::Single(SingleType {
+            scalar: true,
+            type_name: type_name,
+        }),
+    })
+}
+
+fn parse_builtin(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<TypedExpression, String> {
     let builtin = eat_token!(
         [Token::Builtin(builtin), Ok(builtin)] <= tokens,
         "expected builtin"
     );
-    let args = parse_expression_group(tokens)?;
-    Ok(Expression::BuiltinCall(BuiltinCallExpression {
-        builtin: builtin,
-        args: args,
-    }))
+    let (args, types) = parse_expression_group(tokens, contents)?;
+    let type_name = get_builtin_return_type(&builtin, types)?;
+    Ok(TypedExpression {
+        expression: Expression::BuiltinCall(BuiltinCallExpression {
+            builtin: builtin,
+            args: args,
+        }),
+        type_name: type_name,
+    })
 }
 
-fn parse_identifier_expression(tokens: &mut Vec<Token>) -> Result<Expression, String> {
+fn parse_identifier_expression(
+    tokens: &mut Vec<Token>,
+    contents: &mut ScopeContents,
+) -> Result<TypedExpression, String> {
     let identifier = eat_token!(
         [Token::Identifier(identifier), Ok(identifier)] <= tokens,
         "expected identifier"
     );
     match tokens.last() {
         Some(Token::LeftParen) => {
-            let args = parse_expression_group(tokens)?;
-            Ok(Expression::Call(CallExpression {
-                name: identifier,
-                args: args,
-            }))
+            let (args, types) = parse_expression_group(tokens, contents)?;
+            let type_name = contents.get_function_return_type(&identifier, types)?;
+            Ok(TypedExpression {
+                expression: Expression::Call(CallExpression {
+                    name: identifier,
+                    args: args,
+                }),
+                type_name: type_name,
+            })
         }
-        _ => Ok(Expression::Variable(identifier)),
+        _ => {
+            let type_name = contents.get_variable(&identifier)?.type_name;
+            Ok(TypedExpression {
+                expression: Expression::Variable(identifier),
+                type_name: type_name,
+            })
+        }
     }
-}
-
-fn parse_assignment(
-    tokens: &mut Vec<Token>,
-    contents: &mut ScopeContents,
-) -> Result<Statement, String> {
-    let identifier = eat_token!(
-        [Token::Identifier(identifier), Ok(identifier)] <= tokens,
-        "expected identifier"
-    );
-    eat_token!([Token::Equals, Ok(())] <= tokens, "expected '='");
-    let expression = parse_expression(tokens)?;
-
-    let variable = contents.get_variable(&identifier)?;
-
-    if !variable.mutable {
-        return Err("cannot assign to immutable variable".to_string());
-    }
-
-    if variable.type_name != get_expression_type(&expression, contents)? {
-        return Err("assignment type mismatch".to_string());
-    }
-
-    Ok(Statement::Assignment(AssignmentStatement {
-        name: identifier,
-        expression: expression,
-    }))
 }
