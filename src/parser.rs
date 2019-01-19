@@ -65,7 +65,7 @@ pub struct AssignmentStatement {
 #[derive(PartialEq, Clone, Debug)]
 pub struct TypedExpression {
     pub expression: Expression,
-    pub type_name: Type,
+    pub typed_as: Type,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -91,21 +91,21 @@ pub struct TupleAccessExpression {
 #[derive(PartialEq, Clone, Debug)]
 pub struct SingleType {
     pub scalar: bool,
-    pub type_name: Primitive,
+    pub primitive: Primitive,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct UnresolvedVariable {
     pub mutable: bool,
     pub name: String,
-    pub type_name: Option<Type>,
+    pub typed_as: Option<Type>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Variable {
     pub mutable: bool,
     pub name: String,
-    pub type_name: Type,
+    pub typed_as: Type,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -161,7 +161,7 @@ impl ScopeContents {
                     return Err("wrong number of arguments".to_string());
                 }
                 for (func_arg, arg) in signature.args.iter().zip(args.iter()) {
-                    if &func_arg.type_name != arg {
+                    if &func_arg.typed_as != arg {
                         return Err("mismatched type".to_string());
                     }
                 }
@@ -322,13 +322,12 @@ fn parse_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
             "expected function argument name"
         );
 
-        let type_name =
-            parse_variable_type(tokens)?.ok_or("expected type in function signature")?;
+        let typed_as = parse_variable_type(tokens)?.ok_or("expected type in function signature")?;
 
         args.push(Variable {
             mutable: mutable,
             name: name,
-            type_name: type_name,
+            typed_as: typed_as,
         });
 
         eat_token!([Token::Comma, Ok(());
@@ -399,7 +398,7 @@ fn parse_return(
 ) -> Result<Statement, String> {
     eat_token!([Token::Return, Ok(())] <= tokens, "expected 'return'");
     let expression = parse_expression(tokens, contents)?;
-    if expression.type_name != contents.get_current_return_type() {
+    if expression.typed_as != contents.get_current_return_type() {
         Err("mismatched return type".to_string())
     } else {
         Ok(Statement::Return(ReturnStatement {
@@ -431,14 +430,14 @@ fn parse_type(tokens: &mut Vec<Token>) -> Result<Type, String> {
     } else {
         let scalar = eat_optional_token!(Token::Scalar, tokens);
 
-        let type_name = eat_token!(
+        let primitive = eat_token!(
             [Token::Primitive(primitive), Ok(primitive)] <= tokens,
             "expected type after ':'"
         );
 
         Ok(Type::Single(SingleType {
             scalar: scalar,
-            type_name: type_name,
+            primitive: primitive,
         }))
     }
 }
@@ -451,12 +450,12 @@ fn parse_variable_declaration(tokens: &mut Vec<Token>) -> Result<UnresolvedVaria
         "expected variable name"
     );
 
-    let type_name = parse_variable_type(tokens)?;
+    let typed_as = parse_variable_type(tokens)?;
 
     Ok(UnresolvedVariable {
         mutable: mutable,
         name: name,
-        type_name: type_name,
+        typed_as: typed_as,
     })
 }
 
@@ -472,7 +471,7 @@ fn parse_variable_assignment(
     Ok(UnresolvedVariable {
         name: variable.name,
         mutable: variable.mutable,
-        type_name: Some(variable.type_name),
+        typed_as: Some(variable.typed_as),
     })
 }
 
@@ -518,25 +517,25 @@ fn parse_assignment(
         variables.push(Variable {
             mutable: maybe_typed_variables[0].mutable,
             name: maybe_typed_variables[0].name.clone(),
-            type_name: match maybe_typed_variables[0].type_name.clone() {
+            typed_as: match maybe_typed_variables[0].typed_as.clone() {
                 Some(provided_type) => {
-                    if provided_type != expression.type_name {
+                    if provided_type != expression.typed_as {
                         Err("incorrect initializer type".to_string())
                     } else {
                         Ok(provided_type)
                     }
                 }
-                None => Ok(expression.type_name.clone()),
+                None => Ok(expression.typed_as.clone()),
             }?,
         });
     } else {
-        if let Type::Tuple(tuple) = expression.type_name.clone() {
+        if let Type::Tuple(tuple) = expression.typed_as.clone() {
             if maybe_typed_variables.len() == tuple.len() {
                 for (t, var) in tuple.iter().zip(maybe_typed_variables.iter()) {
                     variables.push(Variable {
                         mutable: var.mutable,
                         name: var.name.clone(),
-                        type_name: match var.type_name.clone() {
+                        typed_as: match var.typed_as.clone() {
                             Some(provided_type) => {
                                 if &provided_type != t {
                                     Err("incorrect initializer type".to_string())
@@ -596,7 +595,7 @@ fn parse_expression(
             _ => Err("expected integer literal")?,
         };
 
-        let type_name = if let Type::Tuple(tuple) = &expression.type_name {
+        let typed_as = if let Type::Tuple(tuple) = &expression.typed_as {
             if element < 0 || element > tuple.len() as i128 {
                 Err("no element in tuple")
             } else {
@@ -611,7 +610,7 @@ fn parse_expression(
                 expression: Box::new(expression),
                 element: element as u64,
             }),
-            type_name: type_name,
+            typed_as: typed_as,
         })
     } else {
         Ok(expression)
@@ -634,7 +633,7 @@ fn parse_expression_group(
                     Token::Comma, continue] <= tokens,
                     "expected ',' or ')'");
     }
-    let types = args.iter().map(|x| x.type_name.clone()).collect();
+    let types = args.iter().map(|x| x.typed_as.clone()).collect();
     Ok((args, types))
 }
 
@@ -645,7 +644,7 @@ fn parse_tuple_expression(
     let (expressions, types) = parse_expression_group(tokens, contents)?;
     Ok(TypedExpression {
         expression: Expression::Tuple(expressions),
-        type_name: Type::Tuple(types),
+        typed_as: Type::Tuple(types),
     })
 }
 
@@ -654,7 +653,7 @@ fn parse_literal(tokens: &mut Vec<Token>) -> Result<TypedExpression, String> {
         [Token::Literal(literal), Ok(literal)] <= tokens,
         "expected literal"
     );
-    let type_name = match literal {
+    let primitive = match literal {
         Literal::Unsigned8(_) => Primitive::Unsigned8,
         Literal::Unsigned16(_) => Primitive::Unsigned16,
         Literal::Unsigned32(_) => Primitive::Unsigned32,
@@ -668,9 +667,9 @@ fn parse_literal(tokens: &mut Vec<Token>) -> Result<TypedExpression, String> {
     };
     Ok(TypedExpression {
         expression: Expression::Literal(literal),
-        type_name: Type::Single(SingleType {
+        typed_as: Type::Single(SingleType {
             scalar: true,
-            type_name: type_name,
+            primitive: primitive,
         }),
     })
 }
@@ -689,7 +688,7 @@ fn parse_builtin(
     for t in types {
         match t {
             Type::Single(s) => {
-                primitives.push(s.type_name);
+                primitives.push(s.primitive);
                 scalar &= s.scalar;
             }
             Type::Tuple(_) => return Err("unexpected tuple argument to builtin".to_string()),
@@ -701,9 +700,9 @@ fn parse_builtin(
             builtin: builtin,
             args: args,
         }),
-        type_name: Type::Single(SingleType {
+        typed_as: Type::Single(SingleType {
             scalar: scalar,
-            type_name: returns,
+            primitive: returns,
         }),
     })
 }
@@ -719,20 +718,20 @@ fn parse_identifier_expression(
     match tokens.last() {
         Some(Token::LeftParen) => {
             let (args, types) = parse_expression_group(tokens, contents)?;
-            let type_name = contents.get_function_return_type(&identifier, types)?;
+            let typed_as = contents.get_function_return_type(&identifier, types)?;
             Ok(TypedExpression {
                 expression: Expression::Call(CallExpression {
                     name: identifier,
                     args: args,
                 }),
-                type_name: type_name,
+                typed_as: typed_as,
             })
         }
         _ => {
-            let type_name = contents.get_variable(&identifier)?.type_name;
+            let typed_as = contents.get_variable(&identifier)?.typed_as;
             Ok(TypedExpression {
                 expression: Expression::Variable(identifier),
-                type_name: type_name,
+                typed_as: typed_as,
             })
         }
     }
