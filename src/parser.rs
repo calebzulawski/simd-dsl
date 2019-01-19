@@ -24,6 +24,7 @@ pub enum Expression {
     Call(CallExpression),
     BuiltinCall(BuiltinCallExpression),
     Tuple(Vec<TypedExpression>),
+    TupleAccess(TupleAccessExpression),
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -77,6 +78,12 @@ pub struct CallExpression {
 pub struct BuiltinCallExpression {
     pub builtin: Builtin,
     pub args: Vec<TypedExpression>,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct TupleAccessExpression {
+    pub expression: Box<TypedExpression>,
+    pub element: u64,
 }
 
 // Contents
@@ -595,13 +602,48 @@ fn parse_expression(
     tokens: &mut Vec<Token>,
     contents: &mut ScopeContents,
 ) -> Result<TypedExpression, String> {
-    Ok(
-        check_token!([Token::Identifier(_), parse_identifier_expression(tokens, contents);
-                      Token::Builtin(_), parse_builtin(tokens, contents);
-                      Token::Literal(_), parse_literal(tokens);
-                      Token::LeftParen, parse_tuple_expression(tokens, contents)] <= tokens,
-                      "expected expression"),
-    )
+    let expression = check_token!([Token::Identifier(_), parse_identifier_expression(tokens, contents);
+                                   Token::Builtin(_), parse_builtin(tokens, contents);
+                                   Token::Literal(_), parse_literal(tokens);
+                                   Token::LeftParen, parse_tuple_expression(tokens, contents)] <= tokens,
+                                   "expected expression");
+    if eat_optional_token!(Token::Dot, tokens) {
+        let literal = eat_token!(
+            [Token::Literal(literal), Ok(literal)] <= tokens,
+            "expected literal"
+        );
+        let element: i128 = match literal {
+            Literal::Unsigned8(v) => v as i128,
+            Literal::Unsigned16(v) => v as i128,
+            Literal::Unsigned32(v) => v as i128,
+            Literal::Unsigned64(v) => v as i128,
+            Literal::Signed8(v) => v as i128,
+            Literal::Signed16(v) => v as i128,
+            Literal::Signed32(v) => v as i128,
+            Literal::Signed64(v) => v as i128,
+            _ => Err("expected integer literal")?,
+        };
+
+        let type_name = if let Type::Tuple(tuple) = &expression.type_name {
+            if element < 0 || element > tuple.len() as i128 {
+                Err("no element in tuple")
+            } else {
+                Ok(tuple[element as usize].clone())
+            }
+        } else {
+            Err("expected tuple")
+        }?;
+
+        Ok(TypedExpression {
+            expression: Expression::TupleAccess(TupleAccessExpression {
+                expression: Box::new(expression),
+                element: element as u64,
+            }),
+            type_name: type_name,
+        })
+    } else {
+        Ok(expression)
+    }
 }
 
 fn parse_expression_group(

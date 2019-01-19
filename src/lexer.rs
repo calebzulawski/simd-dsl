@@ -61,6 +61,7 @@ pub enum Token {
     Colon,
     Equals,
     Arrow,
+    Dot,
     Identifier(String),
     Builtin(Builtin),
     Primitive(Primitive),
@@ -87,6 +88,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
         r"(?P<liti16>\-?\d+)i16|",
         r"(?P<liti32>\-?\d+)i32|",
         r"(?P<liti64>\-?\d+)i64|",
+        r"(?P<litf>\-?\d+\.\d*)|",
+        r"(?P<liti>\-?\d+)|",
         r"(?P<semicolon>;)|",
         r"(?P<lparen>\()|",
         r"(?P<rparen>\))|",
@@ -95,7 +98,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
         r"(?P<comma>,)|",
         r"(?P<colon>:)|",
         r"(?P<equals>=)|",
-        r"(?P<arrow>->)"
+        r"(?P<arrow>->)|",
+        r"(?P<dot>\.)"
     ))
     .unwrap();
 
@@ -219,6 +223,24 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     .parse::<f64>()
                     .unwrap(),
             )))
+        } else if capture.name("litf").is_some() {
+            Ok(Token::Literal(Literal::Float64(
+                capture
+                    .name("litf")
+                    .unwrap()
+                    .as_str()
+                    .parse::<f64>()
+                    .unwrap(),
+            )))
+        } else if capture.name("liti").is_some() {
+            Ok(Token::Literal(Literal::Signed64(
+                capture
+                    .name("liti")
+                    .unwrap()
+                    .as_str()
+                    .parse::<i64>()
+                    .unwrap(),
+            )))
         } else if capture.name("builtin").is_some() {
             Ok(Token::Builtin(
                 parse_builtin(capture.name("builtin").unwrap().as_str()).unwrap(),
@@ -241,6 +263,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             Ok(Token::Equals)
         } else if capture.name("arrow").is_some() {
             Ok(Token::Arrow)
+        } else if capture.name("dot").is_some() {
+            Ok(Token::Dot)
         } else {
             Err("Unhandled token")
         };
