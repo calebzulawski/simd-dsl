@@ -1,4 +1,5 @@
 mod builtins;
+mod full_ast;
 mod lexer;
 mod parser;
 mod primitives;
