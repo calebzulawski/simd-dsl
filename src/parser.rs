@@ -1,7 +1,7 @@
-use crate::lexer::Builtin;
+use crate::builtins::Builtin;
 use crate::lexer::Literal;
-use crate::lexer::Primitive;
 use crate::lexer::Token;
+use crate::primitives::Primitive;
 
 // AST node variants
 
@@ -202,34 +202,6 @@ impl ScopeContents {
             }
         }
         Err(format!("no variable '{}'", name))
-    }
-}
-
-// Validates builtin functions
-
-fn get_builtin_return_type(builtin: &Builtin, args: Vec<Type>) -> Result<Type, String> {
-    match builtin {
-        Builtin::Add => get_builtin_return_type_binary(args),
-        Builtin::Sub => get_builtin_return_type_binary(args),
-        Builtin::Mul => get_builtin_return_type_binary(args),
-        Builtin::Div => get_builtin_return_type_binary(args),
-    }
-}
-
-fn get_builtin_return_type_binary(args: Vec<Type>) -> Result<Type, String> {
-    if args.len() != 2 {
-        Err(format!("Got {} arguments, expected 2", args.len()))
-    } else if let (Type::Single(a), Type::Single(b)) = (&args[0], &args[1]) {
-        if a.type_name != b.type_name {
-            Err("incorrect arguments".to_string())
-        } else {
-            Ok(Type::Single(SingleType {
-                scalar: a.scalar && b.scalar,
-                type_name: a.type_name.clone(),
-            }))
-        }
-    } else {
-        Err("tuple not expected".to_string())
     }
 }
 
@@ -712,13 +684,27 @@ fn parse_builtin(
         "expected builtin"
     );
     let (args, types) = parse_expression_group(tokens, contents)?;
-    let type_name = get_builtin_return_type(&builtin, types)?;
+    let mut primitives = Vec::new();
+    let mut scalar = true;
+    for t in types {
+        match t {
+            Type::Single(s) => {
+                primitives.push(s.type_name);
+                scalar &= s.scalar;
+            }
+            Type::Tuple(_) => return Err("unexpected tuple argument to builtin".to_string()),
+        }
+    }
+    let returns = crate::builtins::get_builtin_return_type(builtin.clone(), primitives)?;
     Ok(TypedExpression {
         expression: Expression::BuiltinCall(BuiltinCallExpression {
             builtin: builtin,
             args: args,
         }),
-        type_name: type_name,
+        type_name: Type::Single(SingleType {
+            scalar: scalar,
+            type_name: returns,
+        }),
     })
 }
 

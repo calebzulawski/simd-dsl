@@ -1,5 +1,7 @@
+mod builtins;
 mod lexer;
 mod parser;
+mod primitives;
 
 fn main() {
     let args = std::env::args();

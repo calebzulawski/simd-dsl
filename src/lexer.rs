@@ -1,16 +1,6 @@
-#[derive(PartialEq, Clone, Debug)]
-pub enum Primitive {
-    Unsigned8,
-    Unsigned16,
-    Unsigned32,
-    Unsigned64,
-    Signed8,
-    Signed16,
-    Signed32,
-    Signed64,
-    Float32,
-    Float64,
-}
+use crate::builtins::lex_builtin;
+use crate::builtins::Builtin;
+use crate::primitives::Primitive;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Literal {
@@ -24,24 +14,6 @@ pub enum Literal {
     Signed64(i64),
     Float32(f32),
     Float64(f64),
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub enum Builtin {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-
-fn parse_builtin(name: &str) -> Result<Builtin, String> {
-    match name {
-        "add" => Ok(Builtin::Add),
-        "sub" => Ok(Builtin::Sub),
-        "mul" => Ok(Builtin::Mul),
-        "div" => Ok(Builtin::Div),
-        other => Err(format!("unrecognized builtin '{}'", other)),
-    }
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -77,7 +49,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
 
     let token_re = regex::Regex::new(concat!(
         r"(?P<identifier>[a-zA-Z]\w*)|",
-        r"%(?P<builtin>[a-zA-Z]\w*)|",
+        r"%(?P<builtin>[a-z]\w*)|",
         r"(?P<litf64>\-?\d+[\.\d*]?)f64|",
         r"(?P<litf32>\-?\d+[\.\d*]?)f32|",
         r"(?P<litu8>\d+)u8|",
@@ -243,7 +215,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             )))
         } else if capture.name("builtin").is_some() {
             Ok(Token::Builtin(
-                parse_builtin(capture.name("builtin").unwrap().as_str()).unwrap(),
+                lex_builtin(capture.name("builtin").unwrap().as_str()).unwrap(),
             ))
         } else if capture.name("semicolon").is_some() {
             Ok(Token::Semicolon)
