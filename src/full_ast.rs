@@ -24,6 +24,12 @@ pub enum Expression {
 }
 
 #[derive(PartialEq, Clone, Debug)]
+pub enum Signature {
+    PublicSignature(PublicSignature),
+    PrivateSignature(PrivateSignature),
+}
+
+#[derive(PartialEq, Clone, Debug)]
 pub enum Type {
     Single(SingleType),
     Tuple(Vec<Type>),
@@ -33,7 +39,6 @@ pub enum Type {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Function {
-    pub public: bool,
     pub signature: Signature,
     pub body: ScopeStatement,
 }
@@ -98,8 +103,15 @@ pub struct Variable {
 }
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct Signature {
+pub struct PrivateSignature {
     pub name: String,
     pub args: Vec<Variable>,
     pub returns: Type,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct PublicSignature {
+    pub name: String,
+    pub args: Vec<Variable>,
+    pub returns: Vec<Variable>,
 }

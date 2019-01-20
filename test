@@ -9,7 +9,7 @@ fn halve(v: i32) -> i32
 }
 
 # A pretty normal function to test
-pub fn test(m: i32, x: i32, b: i32) -> (i32, i32)
+pub fn test(m: i32, x: i32, b: i32) -> (y1: i32, y2: i32)
 {
     let y1 = %add(%mul(m, x), b);
     let y2 = y1;
@@ -17,6 +17,11 @@ pub fn test(m: i32, x: i32, b: i32) -> (i32, i32)
         y2 = halve(y2);
     }        
     return (y1, double(y2));
+}
+
+pub fn test2(m: i32, x: i32, b: i32) -> (y: i32)
+{
+    return test(m, x, b).0;
 }
 
 fn tuple_test_add(a: i32, b: i32) -> i32

@@ -19,6 +19,26 @@ struct ScopeContents {
     pub current_function: Option<Signature>,
 }
 
+fn get_signature_return_type(signature: &Signature) -> Result<Type, String> {
+    match signature {
+        Signature::PublicSignature(s) => {
+            if s.returns.len() == 1 {
+                Ok(s.returns[0].typed_as.clone())
+            } else if s.returns.len() > 1 {
+                Ok(Type::Tuple(
+                    s.returns
+                        .iter()
+                        .map(|x| x.typed_as.clone())
+                        .collect::<Vec<Type>>(),
+                ))
+            } else {
+                Err("Compiler error: get_current_return_type: return size 0")?
+            }
+        }
+        Signature::PrivateSignature(s) => Ok(s.returns.clone()),
+    }
+}
+
 impl ScopeContents {
     fn new() -> Self {
         ScopeContents {
@@ -39,29 +59,42 @@ impl ScopeContents {
             .current_function
             .take()
             .expect("Compiler error: leave_function");
-        self.functions.insert(signature.name.clone(), signature);
+        self.functions.insert(
+            match signature {
+                Signature::PublicSignature(ref s) => s.name.clone(),
+                Signature::PrivateSignature(ref s) => s.name.clone(),
+            },
+            signature,
+        );
     }
 
-    fn get_current_return_type(&self) -> Type {
-        self.current_function
-            .as_ref()
-            .expect("Compiler error: get_current_return_type")
-            .returns
-            .clone()
+    fn get_current_return_type(&self) -> Result<Type, String> {
+        get_signature_return_type(
+            self.current_function
+                .as_ref()
+                .ok_or("Compiler error: get_current_return_type: no current function")?,
+        )
     }
 
     fn get_function_return_type(&self, name: &String, args: Vec<Type>) -> Result<Type, String> {
         match self.functions.get(name) {
             Some(signature) => {
-                if signature.args.len() != args.len() {
+                let found_args = match signature {
+                    Signature::PublicSignature(s) => &s.args,
+                    Signature::PrivateSignature(s) => &s.args,
+                }
+                .iter()
+                .map(|x| x.typed_as.clone())
+                .collect::<Vec<Type>>();
+                if found_args.len() != args.len() {
                     return Err("wrong number of arguments".to_string());
                 }
-                for (func_arg, arg) in signature.args.iter().zip(args.iter()) {
-                    if &func_arg.typed_as != arg {
+                for (found_arg, arg) in found_args.iter().zip(args.iter()) {
+                    if found_arg != arg {
                         return Err("mismatched type".to_string());
                     }
                 }
-                Ok(signature.returns.clone())
+                get_signature_return_type(signature)
             }
             None => Err(format!("no function '{}'", name)),
         }
@@ -184,36 +217,33 @@ fn parse_function(
     mut tokens: &mut Vec<Token>,
     mut contents: &mut ScopeContents,
 ) -> Result<TopNode, String> {
-    let public = eat_optional_token!(Token::Pub, tokens);
-    let signature = parse_signature(&mut tokens)?;
-
-    // public functions can't have nested tuple return types
-    if public {
-        if let Type::Tuple(ref tuple) = &signature.returns {
-            for element in tuple {
-                if let Type::Tuple(_) = element {
-                    return Err(
-                        "nested tuple return types not permitted in public functions".to_string(),
-                    );
-                }
-            }
-        }
-    }
+    let signature = if eat_optional_token!(Token::Pub, tokens) {
+        parse_public_signature(&mut tokens)?
+    } else {
+        parse_private_signature(&mut tokens)?
+    };
 
     contents.enter_function(signature.clone());
-    for arg in &signature.args {
+
+    // Add function arguments to scope
+    for arg in match signature {
+        Signature::PublicSignature(ref s) => &s.args,
+        Signature::PrivateSignature(ref s) => &s.args,
+    } {
         contents.add_variable(arg.clone())?;
     }
+
     let body = parse_block(&mut tokens, &mut contents)?;
+
     contents.leave_function();
+
     Ok(TopNode::Function(Function {
-        public: public,
         signature: signature,
         body: body,
     }))
 }
 
-fn parse_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
+fn parse_private_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
     eat_token!([Token::Fn, Ok(())] <= tokens, "expected 'fn'");
 
     let name = eat_token!(
@@ -249,11 +279,83 @@ fn parse_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
 
     let returns = parse_type(tokens)?;
 
-    Ok(Signature {
+    Ok(Signature::PrivateSignature(PrivateSignature {
         name: name,
         args: args,
         returns: returns,
-    })
+    }))
+}
+
+fn parse_public_signature(tokens: &mut Vec<Token>) -> Result<Signature, String> {
+    eat_token!([Token::Fn, Ok(())] <= tokens, "expected 'fn'");
+
+    let name = eat_token!(
+        [Token::Identifier(identifier), Ok(identifier)] <= tokens,
+        "expected function name"
+    );
+
+    eat_token!([Token::LeftParen, Ok(())] <= tokens, "expected '('");
+
+    let mut args = Vec::new();
+    loop {
+        let mutable = eat_optional_token!(Token::Mut, tokens);
+
+        let name = eat_token!(
+            [Token::Identifier(identifier), Ok(identifier)] <= tokens,
+            "expected function argument name"
+        );
+
+        eat_token!([Token::Colon, Ok(())] <= tokens, "expected ':'");
+
+        let typed_as = parse_single_type(tokens)?;
+
+        args.push(Variable {
+            mutable: mutable,
+            name: name,
+            typed_as: Type::Single(typed_as),
+        });
+
+        eat_token!([Token::Comma, Ok(());
+                    Token::RightParen, break] <= tokens,
+                    "expected ',' or ')'");
+    }
+
+    eat_token!([Token::Arrow, Ok(())] <= tokens, "expected '->'");
+
+    let mut returns = Vec::new();
+    eat_token!([Token::LeftParen, Ok(())] <= tokens, "expected '('");
+    loop {
+        let name = eat_token!(
+            [Token::Identifier(identifier), Ok(identifier)] <= tokens,
+            "expected function return parameter name"
+        );
+
+        if args.iter().find(|x| x.name == name).is_some() {
+            return Err(
+                "public function return parameter shadows function argument variable".to_string(),
+            );
+        }
+
+        eat_token!([Token::Colon, Ok(())] <= tokens, "expected ':'");
+
+        let typed_as = parse_single_type(tokens)?;
+
+        returns.push(Variable {
+            mutable: false,
+            name: name,
+            typed_as: Type::Single(typed_as),
+        });
+
+        eat_token!([Token::Comma, Ok(());
+                    Token::RightParen, break] <= tokens,
+                    "expected ',' or ')'");
+    }
+
+    Ok(Signature::PublicSignature(PublicSignature {
+        name: name,
+        args: args,
+        returns: returns,
+    }))
 }
 
 fn parse_scoped_block(
@@ -308,7 +410,7 @@ fn parse_return(
 ) -> Result<Statement, String> {
     eat_token!([Token::Return, Ok(())] <= tokens, "expected 'return'");
     let expression = parse_expression(tokens, contents)?;
-    if expression.typed_as != contents.get_current_return_type() {
+    if expression.typed_as != contents.get_current_return_type()? {
         Err("mismatched return type".to_string())
     } else {
         Ok(Statement::Return(ReturnStatement {
@@ -327,6 +429,20 @@ fn parse_variable_type(tokens: &mut Vec<Token>) -> Result<Option<Type>, String> 
     }
 }
 
+fn parse_single_type(tokens: &mut Vec<Token>) -> Result<SingleType, String> {
+    let scalar = eat_optional_token!(Token::Scalar, tokens);
+
+    let primitive = eat_token!(
+        [Token::Primitive(primitive), Ok(primitive)] <= tokens,
+        "expected type after ':'"
+    );
+
+    Ok(SingleType {
+        scalar: scalar,
+        primitive: primitive,
+    })
+}
+
 fn parse_type(tokens: &mut Vec<Token>) -> Result<Type, String> {
     if eat_optional_token!(Token::LeftParen, tokens) {
         let mut elements = Vec::new();
@@ -338,17 +454,7 @@ fn parse_type(tokens: &mut Vec<Token>) -> Result<Type, String> {
         }
         Ok(Type::Tuple(elements))
     } else {
-        let scalar = eat_optional_token!(Token::Scalar, tokens);
-
-        let primitive = eat_token!(
-            [Token::Primitive(primitive), Ok(primitive)] <= tokens,
-            "expected type after ':'"
-        );
-
-        Ok(Type::Single(SingleType {
-            scalar: scalar,
-            primitive: primitive,
-        }))
+        Ok(Type::Single(parse_single_type(tokens)?))
     }
 }
 
