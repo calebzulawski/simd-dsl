@@ -1,6 +1,7 @@
 use crate::full_ast::*;
 use crate::lexer::Token;
 use crate::primitives::*;
+use std::collections::HashMap;
 
 // A variable that we might not know the type of yet
 #[derive(PartialEq, Clone, Debug)]
@@ -13,15 +14,15 @@ pub struct UnresolvedVariable {
 // Contains the variables and functions that are in scope
 
 struct ScopeContents {
-    pub functions: std::collections::HashMap<String, Signature>,
-    pub variables: Vec<std::collections::HashMap<String, Variable>>,
+    pub functions: HashMap<String, Signature>,
+    pub variables: Vec<HashMap<String, Variable>>,
     pub current_function: Option<Signature>,
 }
 
 impl ScopeContents {
     fn new() -> Self {
         ScopeContents {
-            functions: std::collections::HashMap::new(),
+            functions: HashMap::new(),
             variables: Vec::new(),
             current_function: None,
         }
@@ -67,7 +68,7 @@ impl ScopeContents {
     }
 
     fn push_scope(&mut self) {
-        self.variables.push(std::collections::HashMap::new());
+        self.variables.push(HashMap::new());
     }
 
     fn pop_scope(&mut self) {
@@ -185,6 +186,20 @@ fn parse_function(
 ) -> Result<TopNode, String> {
     let public = eat_optional_token!(Token::Pub, tokens);
     let signature = parse_signature(&mut tokens)?;
+
+    // public functions can't have nested tuple return types
+    if public {
+        if let Type::Tuple(ref tuple) = &signature.returns {
+            for element in tuple {
+                if let Type::Tuple(_) = element {
+                    return Err(
+                        "nested tuple return types not permitted in public functions".to_string(),
+                    );
+                }
+            }
+        }
+    }
+
     contents.enter_function(signature.clone());
     for arg in &signature.args {
         contents.add_variable(arg.clone())?;
