@@ -7,9 +7,14 @@ pub struct Program {
 }
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct Variable {
+pub struct Type {
     pub scalar: bool,
     pub primitive: Primitive,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Variable {
+    pub typed_as: Type,
     pub name: String,
 }
 
@@ -17,6 +22,7 @@ pub struct Variable {
 pub struct Function {
     pub name: String,
     pub args: Vec<Variable>,
+    pub variables: Vec<Variable>,
     pub returns: Vec<Variable>,
     pub scalar_body: Vec<Statement>,
     pub loop_body: Vec<Statement>,
@@ -24,23 +30,43 @@ pub struct Function {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Statement {
+    Assignment(Assignment),
     Broadcast(Broadcast),
+    Load(Load),
+    Store(Store),
     BuiltinUniformType(BuiltinCallUniformType),
 }
 
 #[derive(PartialEq, Clone, Debug)]
+pub struct Assignment {
+    pub source: String,
+    pub destination: String,
+}
+
+#[derive(PartialEq, Clone, Debug)]
 pub struct Broadcast {
-    pub initial: bool,
     pub primitive: Primitive,
-    pub new_variable: String,
-    pub old_variable: String,
+    pub source: String,
+    pub destination: String,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Load {
+    pub primitive: Primitive,
+    pub source: String,
+    pub destination: String,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Store {
+    pub primitive: Primitive,
+    pub source: String,
+    pub destination: String,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct BuiltinCallUniformType {
-    pub initial: bool,
-    pub scalar: bool,
-    pub primitive: Primitive,
+    pub typed_as: Type,
     pub variable: String,
     pub args: Vec<String>,
     pub builtin: Builtin,

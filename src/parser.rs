@@ -14,9 +14,9 @@ pub struct UnresolvedVariable {
 // Contains the variables and functions that are in scope
 
 struct ScopeContents {
-    pub functions: HashMap<String, Signature>,
-    pub variables: Vec<HashMap<String, Variable>>,
-    pub current_function: Option<Signature>,
+    functions: HashMap<String, Signature>,
+    variables: Vec<HashMap<String, Variable>>,
+    current_function: Option<Signature>,
 }
 
 fn get_signature_return_type(signature: &Signature) -> Result<Type, String> {
